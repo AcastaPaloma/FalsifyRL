@@ -14,6 +14,9 @@ def test_kaggle_notebook_contains_reproducibility_contract() -> None:
     assert "crossing_navigation" in rendered
     assert "assert len(rows) == 640" in rendered
     assert "adapter_config.json" in rendered
+    assert "AutoModelForMultimodalLM" in rendered
+    assert "AutoProcessor" in rendered
+    assert 'content": [{"type": "text"' in rendered
     assert "FALSIFYRL_MAX_EXAMPLES" in rendered
     assert "falsifyrl-base-test-predictions.jsonl" in rendered
     assert "falsifyrl-adapted-test-predictions.jsonl" in rendered

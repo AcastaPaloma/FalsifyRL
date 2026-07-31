@@ -36,6 +36,11 @@ simulator-derived JSON—not language-model annotations.
         ),
         _code(
             """
+%pip install -q "transformers>=5.8,<6" "peft>=0.17,<1" "accelerate>=1,<2"
+"""
+        ),
+        _code(
+            """
 import json
 import os
 from collections import Counter, defaultdict
@@ -157,7 +162,7 @@ base model selected by AutoScientist.
             """
 import torch
 from peft import PeftModel
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForMultimodalLM, AutoProcessor
 
 adapter_candidates = list(INPUT_ROOT.rglob("adapter_config.json"))
 assert adapter_candidates, "Attach the public FalsifyRL Kaggle Model"
@@ -167,8 +172,8 @@ BASE_MODEL_ID = adapter_config["base_model_name_or_path"]
 print("adapter:", ADAPTER_DIR)
 print("base model:", BASE_MODEL_ID)
 
-tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_ID)
-base_model = AutoModelForCausalLM.from_pretrained(
+processor = AutoProcessor.from_pretrained(BASE_MODEL_ID)
+base_model = AutoModelForMultimodalLM.from_pretrained(
     BASE_MODEL_ID,
     torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
     device_map="auto",
@@ -183,23 +188,24 @@ def extract_json(text):
     return text[start:end + 1] if start >= 0 and end >= start else text
 
 def predict(model, prompt):
-    if tokenizer.chat_template:
-        formatted = tokenizer.apply_chat_template(
-            [{"role": "user", "content": prompt}],
-            tokenize=False,
-            add_generation_prompt=True,
-        )
-    else:
-        formatted = prompt
-    inputs = tokenizer(formatted, return_tensors="pt").to(model.device)
+    inputs = processor.apply_chat_template(
+        [{
+            "role": "user",
+            "content": [{"type": "text", "text": prompt}],
+        }],
+        tokenize=True,
+        add_generation_prompt=True,
+        return_dict=True,
+        return_tensors="pt",
+    ).to(model.device)
     with torch.inference_mode():
         output = model.generate(
             **inputs,
             max_new_tokens=512,
             do_sample=False,
-            pad_token_id=tokenizer.eos_token_id,
+            pad_token_id=processor.tokenizer.eos_token_id,
         )
-    generated = tokenizer.decode(
+    generated = processor.decode(
         output[0, inputs["input_ids"].shape[1]:],
         skip_special_tokens=True,
     )

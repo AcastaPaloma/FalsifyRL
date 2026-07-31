@@ -104,17 +104,17 @@ def get_runner():
         return None
     import torch
     from peft import PeftModel
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from transformers import AutoModelForMultimodalLM, AutoProcessor
 
-    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_ID)
-    base = AutoModelForCausalLM.from_pretrained(
+    processor = AutoProcessor.from_pretrained(BASE_MODEL_ID)
+    base = AutoModelForMultimodalLM.from_pretrained(
         BASE_MODEL_ID,
         torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
         device_map="auto",
     )
     model = PeftModel.from_pretrained(base, MODEL_REPO_ID)
     model.eval()
-    _runner = (tokenizer, model)
+    _runner = (processor, model)
     return _runner
 
 
@@ -139,24 +139,27 @@ def run_critic(example_id: str):
                 "but is not presented as a model prediction."
             ),
         }
-    tokenizer, model = runner
+    processor, model = runner
     prompt = BY_ID[example_id]["prompt"]
-    if tokenizer.chat_template:
-        model_input = tokenizer.apply_chat_template(
-            [{"role": "user", "content": prompt}],
-            tokenize=False,
-            add_generation_prompt=True,
-        )
-    else:
-        model_input = prompt
-    inputs = tokenizer(model_input, return_tensors="pt").to(model.device)
+    inputs = processor.apply_chat_template(
+        [
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": prompt}],
+            }
+        ],
+        tokenize=True,
+        add_generation_prompt=True,
+        return_dict=True,
+        return_tensors="pt",
+    ).to(model.device)
     output = model.generate(
         **inputs,
         max_new_tokens=512,
         do_sample=False,
-        pad_token_id=tokenizer.eos_token_id,
+        pad_token_id=processor.tokenizer.eos_token_id,
     )
-    generated = tokenizer.decode(
+    generated = processor.decode(
         output[0, inputs["input_ids"].shape[1] :],
         skip_special_tokens=True,
     )
