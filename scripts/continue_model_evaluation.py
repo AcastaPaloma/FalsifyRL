@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -53,9 +54,23 @@ def locate_or_extract_adapter(checkpoint: Path, destination: Path) -> Path:
     return extract_adapter_checkpoint(checkpoint, destination)
 
 
+def _subprocess_environment(repository: Path) -> dict[str, str]:
+    environment = os.environ.copy()
+    python_paths = [str((repository / "src").resolve())]
+    if existing := environment.get("PYTHONPATH"):
+        python_paths.append(existing)
+    environment["PYTHONPATH"] = os.pathsep.join(python_paths)
+    return environment
+
+
 def _run(command: list[str], *, cwd: Path) -> None:
     print(json.dumps({"command": command}), flush=True)
-    subprocess.run(command, cwd=cwd, check=True)
+    subprocess.run(
+        command,
+        cwd=cwd,
+        check=True,
+        env=_subprocess_environment(cwd),
+    )
 
 
 def update_private_manifest(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import tarfile
 from pathlib import Path
 
@@ -10,7 +11,10 @@ import zstandard
 
 from falsifyrl.autoscientist import AutoScientistPlan, WorkflowState
 from falsifyrl.release import extract_adapter_checkpoint, prepare_model_bundle
-from scripts.continue_model_evaluation import await_successful_training
+from scripts.continue_model_evaluation import (
+    _subprocess_environment,
+    await_successful_training,
+)
 
 
 def _checkpoint(path: Path) -> None:
@@ -125,6 +129,20 @@ def test_model_evaluation_waits_for_downloadable_successful_run(
 
     assert state.autoscientist_run_id == "experiment-123"
     assert state.best_win_rate == 0.8
+
+
+def test_model_evaluation_exposes_repository_source_to_isolated_python(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PYTHONPATH", "existing-path")
+
+    environment = _subprocess_environment(tmp_path)
+
+    assert environment["PYTHONPATH"].split(os.pathsep) == [
+        str((tmp_path / "src").resolve()),
+        "existing-path",
+    ]
 
 
 def test_checkpoint_preparation_rejects_path_traversal(tmp_path: Path) -> None:
