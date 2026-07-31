@@ -79,7 +79,9 @@ selects the original `prompt` / `completion` columns uniformly from the exact pr
 Because AutoScientist's trainable view of the adaptation run does not expose those original
 columns, the exact audited export is uploaded byte-for-byte once more with SDK passthrough
 processing and the audited `prompt` / `completion` mapping. Passthrough materializes the upload
-directly as a trainable dataset; it does not run a second Adaptive Data transformation.
+directly as a trainable dataset; it does not run a second Adaptive Data transformation. The
+passthrough export canonicalizes these fields as `original_prompt` / `original_completion`; an
+exact ordered-pair audit must pass before those canonical columns are sent to AutoScientist.
 
 ## 4. Train
 

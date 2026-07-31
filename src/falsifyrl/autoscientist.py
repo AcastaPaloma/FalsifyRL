@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import io
 import json
 import os
 import time
@@ -64,6 +65,9 @@ class WorkflowState:
     adapted_schema_valid: bool = False
     training_dataset_id: str | None = None
     training_dataset_status: str | None = None
+    training_prompt_column: str | None = None
+    training_completion_column: str | None = None
+    training_dataset_export_sha256: str | None = None
     autoscientist_run_id: str | None = None
     autoscientist_run_ids: list[str] = field(default_factory=list)
     autoscientist_status: str | None = None
@@ -89,6 +93,9 @@ class WorkflowState:
             "adapted_schema_valid": self.adapted_schema_valid,
             "training_dataset_id": self.training_dataset_id,
             "training_dataset_status": self.training_dataset_status,
+            "training_prompt_column": self.training_prompt_column,
+            "training_completion_column": self.training_completion_column,
+            "training_dataset_export_sha256": self.training_dataset_export_sha256,
             "autoscientist_run_id": self.autoscientist_run_id,
             "autoscientist_run_ids": self.autoscientist_run_ids,
             "autoscientist_status": self.autoscientist_status,
@@ -439,11 +446,43 @@ def prepare_training_dataset(
     if int(_value(dataset, "row_count", 0)) != state.adapted_row_count:
         raise ValueError("passthrough training dataset row count does not match export")
     mapping = _value(dataset, "configured_column_mapping", {}) or {}
-    if _value(mapping, "prompt") != state.adapted_prompt_column or _value(
-        mapping,
-        "completion",
-    ) != state.adapted_completion_column:
+    if mapping and (
+        _value(mapping, "prompt") != state.adapted_prompt_column
+        or _value(mapping, "completion") != state.adapted_completion_column
+    ):
         raise ValueError("passthrough training dataset mapping does not match audit")
+
+    downloaded = client.datasets.download(state.training_dataset_id, file_format="csv")
+    if not isinstance(downloaded, str):
+        raise TypeError("passthrough training dataset download did not return text")
+    with export_path.open("r", encoding="utf-8-sig", newline="") as stream:
+        source_rows = list(csv.DictReader(stream))
+    training_rows = list(csv.DictReader(io.StringIO(downloaded, newline="")))
+    if not training_rows or set(training_rows[0]) != {
+        "original_prompt",
+        "original_completion",
+        "enhanced_prompt",
+        "enhanced_completion",
+    }:
+        raise ValueError("passthrough training dataset has an unexpected canonical schema")
+    source_pairs = [
+        (
+            row[state.adapted_prompt_column],
+            row[state.adapted_completion_column],
+        )
+        for row in source_rows
+    ]
+    training_pairs = [
+        (row["original_prompt"], row["original_completion"])
+        for row in training_rows
+    ]
+    if training_pairs != source_pairs:
+        raise ValueError("passthrough training dataset content does not match audit")
+    state.training_prompt_column = "original_prompt"
+    state.training_completion_column = "original_completion"
+    state.training_dataset_export_sha256 = hashlib.sha256(
+        downloaded.encode("utf-8")
+    ).hexdigest()
     return state
 
 
@@ -586,6 +625,8 @@ def run_autoscientist(
         or not state.adapted_completion_column
         or not state.training_dataset_id
         or state.training_dataset_status != "succeeded"
+        or not state.training_prompt_column
+        or not state.training_completion_column
     ):
         raise ValueError(
             "an exported and audited exact adapted dataset is required before training"
@@ -596,8 +637,8 @@ def run_autoscientist(
         "target_win_rate": state.plan.target_win_rate,
         "data_format": "instruction",
         "column_mapping": {
-            "prompt": state.adapted_prompt_column,
-            "completion": state.adapted_completion_column,
+            "prompt": state.training_prompt_column,
+            "completion": state.training_completion_column,
         },
         "idempotency_key": (
             f"falsifyrl-v2-{state.training_dataset_id}"

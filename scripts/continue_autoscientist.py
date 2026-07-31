@@ -150,6 +150,8 @@ def main() -> None:
             {
                 "training_dataset_id": state.training_dataset_id,
                 "training_dataset_status": state.training_dataset_status,
+                "training_prompt_column": state.training_prompt_column,
+                "training_completion_column": state.training_completion_column,
             },
             sort_keys=True,
         ),

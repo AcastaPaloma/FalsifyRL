@@ -72,6 +72,12 @@ class FakeDatasets:
         )
 
     def download(self, dataset_id, file_format):
+        if dataset_id == "training-456":
+            return (
+                "original_prompt,original_completion,"
+                "enhanced_prompt,enhanced_completion\n"
+                "p,c,,\n"
+            )
         assert dataset_id == "dataset-123"
         assert file_format == "csv"
         return "https://example.test/adapted.csv"
@@ -158,6 +164,8 @@ def test_training_uses_idempotency_and_records_submission_ids() -> None:
         adapted_schema_valid=True,
         training_dataset_id="training-456",
         training_dataset_status="succeeded",
+        training_prompt_column="original_prompt",
+        training_completion_column="original_completion",
     )
 
     snapshots = []
@@ -174,8 +182,8 @@ def test_training_uses_idempotency_and_records_submission_ids() -> None:
     arguments = client.autoscientist.create_arguments
     assert arguments["data_format"] == "instruction"
     assert arguments["column_mapping"] == {
-        "prompt": "prompt",
-        "completion": "completion",
+        "prompt": "original_prompt",
+        "completion": "original_completion",
     }
     assert arguments["dataset_id"] == "training-456"
     assert arguments["idempotency_key"] == "falsifyrl-v2-training-456"
@@ -331,6 +339,8 @@ def test_training_accepts_audited_exact_duplicate_collapse() -> None:
         adapted_schema_valid=True,
         training_dataset_id="training-456",
         training_dataset_status="succeeded",
+        training_prompt_column="original_prompt",
+        training_completion_column="original_completion",
     )
 
     result = run_autoscientist(FakeClient(), state)
@@ -367,6 +377,8 @@ def test_prepare_training_dataset_uses_exact_passthrough_export(tmp_path) -> Non
 
     assert result.training_dataset_id == "training-456"
     assert result.training_dataset_status == "succeeded"
+    assert result.training_prompt_column == "original_prompt"
+    assert result.training_completion_column == "original_completion"
     assert snapshots[0]["training_dataset_id"] == "training-456"
     assert client.datasets.upload_calls[0]["processing_mode"] == "passthrough"
     assert client.datasets.upload_calls[0]["column_mapping"] == {
