@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from scripts.build_colab_notebook import colab_notebook
 from scripts.build_kaggle_notebook import notebook
 from scripts.prepare_kaggle_notebook import prepare_kaggle_notebook
 
@@ -27,6 +28,8 @@ def test_kaggle_notebook_contains_reproducibility_contract() -> None:
     assert '"adapted_metrics": adapted_metrics' in rendered
     assert '"improvement"' in rendered
     assert "executable-patch metric" in rendered
+    assert 'FALSIFYRL_BATCH_SIZE", 32' in rendered
+    assert "processor.batch_decode" in rendered
 
 
 def test_kaggle_release_declares_exact_adapted_dataset_and_model(
@@ -47,3 +50,17 @@ def test_kaggle_release_declares_exact_adapted_dataset_and_model(
     ]
     assert (output / "falsifyrl_evaluation.ipynb").is_file()
     assert (output / "kernel-metadata.json").is_file()
+
+
+def test_colab_notebook_uses_public_huggingface_artifacts() -> None:
+    value = colab_notebook()
+    rendered = "\n".join(
+        "".join(cell["source"])
+        for cell in value["cells"]
+    )
+
+    assert "KuanKuanKuan/falsifyrl-adapted" in rendered
+    assert "KuanKuanKuan/falsifyrl-autoscientist" in rendered
+    assert "hf_hub_download" in rendered
+    assert "snapshot_download" in rendered
+    assert "/kaggle/" not in rendered
