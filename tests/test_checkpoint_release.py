@@ -119,6 +119,35 @@ def test_adapter_base_model_alias_is_canonicalized_by_matching_slug(
     ] == "Qwen/Qwen3.5-0.8B"
 
 
+def test_decorated_internal_llama_alias_is_canonicalized(
+    tmp_path: Path,
+) -> None:
+    adapter_root = tmp_path / "adapter"
+    adapter_root.mkdir()
+    config_path = adapter_root / "adapter_config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "base_model_name_or_path": (
+                    "togethercomputer/"
+                    "Meta-Llama-3.2-3B-Instruct-Reference__TOG__FT"
+                )
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    original = canonicalize_adapter_base_model(
+        adapter_root,
+        "meta-llama/Llama-3.2-3B-Instruct",
+    )
+
+    assert original.endswith("Meta-Llama-3.2-3B-Instruct-Reference__TOG__FT")
+    assert json.loads(config_path.read_text(encoding="utf-8"))[
+        "base_model_name_or_path"
+    ] == "meta-llama/Llama-3.2-3B-Instruct"
+
+
 def test_adapter_base_model_canonicalization_rejects_different_model(
     tmp_path: Path,
 ) -> None:

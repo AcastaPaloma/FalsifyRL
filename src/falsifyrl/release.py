@@ -612,10 +612,17 @@ def canonicalize_adapter_base_model(
     original_model_id = str(config.get("base_model_name_or_path") or "")
     if not original_model_id:
         raise ValueError("adapter config is missing base_model_name_or_path")
-    if (
-        original_model_id.rsplit("/", 1)[-1].casefold()
-        != canonical_model_id.rsplit("/", 1)[-1].casefold()
-    ):
+
+    def model_identity(model_id: str) -> str:
+        name = model_id.rsplit("/", 1)[-1].casefold()
+        for suffix in ("-reference__tog__ft", "__tog__ft", "-reference"):
+            if name.endswith(suffix):
+                name = name[: -len(suffix)]
+        if name.startswith("meta-"):
+            name = name.removeprefix("meta-")
+        return "".join(character for character in name if character.isalnum())
+
+    if model_identity(original_model_id) != model_identity(canonical_model_id):
         raise ValueError(
             "checkpoint base model does not match the AutoScientist run model: "
             f"{original_model_id!r} != {canonical_model_id!r}"
