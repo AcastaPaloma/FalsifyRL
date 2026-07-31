@@ -465,18 +465,19 @@ def prepare_training_dataset(
         "enhanced_completion",
     }:
         raise ValueError("passthrough training dataset has an unexpected canonical schema")
-    source_pairs = [
-        (
-            row[state.adapted_prompt_column],
-            row[state.adapted_completion_column],
-        )
+    source_by_prompt = {
+        row[state.adapted_prompt_column]: row[state.adapted_completion_column]
         for row in source_rows
-    ]
-    training_pairs = [
-        (row["original_prompt"], row["original_completion"])
+    }
+    training_by_prompt = {
+        row["original_prompt"]: row["original_completion"]
         for row in training_rows
-    ]
-    if training_pairs != source_pairs:
+    }
+    if len(source_by_prompt) != len(source_rows):
+        raise ValueError("audited export contains duplicate training prompts")
+    if len(training_by_prompt) != len(training_rows):
+        raise ValueError("passthrough training dataset contains duplicate prompts")
+    if training_by_prompt != source_by_prompt:
         raise ValueError("passthrough training dataset content does not match audit")
     state.training_prompt_column = "original_prompt"
     state.training_completion_column = "original_completion"

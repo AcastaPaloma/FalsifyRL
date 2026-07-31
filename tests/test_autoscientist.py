@@ -42,7 +42,7 @@ class FakeDatasets:
             )
             return SimpleNamespace(
                 status="succeeded",
-                row_count=1,
+                row_count=2,
                 configured_column_mapping=mapping,
             )
         assert dataset_id == "dataset-123"
@@ -76,7 +76,8 @@ class FakeDatasets:
             return (
                 "original_prompt,original_completion,"
                 "enhanced_prompt,enhanced_completion\n"
-                "p,c,,\n"
+                "p2,c2,,\n"
+                "p1,c1,,\n"
             )
         assert dataset_id == "dataset-123"
         assert file_format == "csv"
@@ -351,7 +352,9 @@ def test_training_accepts_audited_exact_duplicate_collapse() -> None:
 def test_prepare_training_dataset_uses_exact_passthrough_export(tmp_path) -> None:
     export = tmp_path / "adapted.csv"
     export.write_text(
-        "prompt,completion,enhanced_completion\np,c,invalid\n",
+        "prompt,completion,enhanced_completion\n"
+        "p1,c1,invalid\n"
+        "p2,c2,invalid\n",
         encoding="utf-8",
     )
     state = WorkflowState(
@@ -361,7 +364,7 @@ def test_prepare_training_dataset_uses_exact_passthrough_export(tmp_path) -> Non
         adapted_export_path=str(export),
         adapted_export_sha256=hashlib.sha256(export.read_bytes()).hexdigest(),
         adapted_audit_sha256="b" * 64,
-        adapted_row_count=1,
+        adapted_row_count=2,
         adapted_prompt_column="prompt",
         adapted_completion_column="completion",
         adapted_schema_valid=True,
