@@ -61,3 +61,16 @@ python -m ruff check .
 - Challenge research, requirements, dataset/model publication gates, and credential policy are in
   `docs/hackathon_plan.md`.
 
+### 2026-07-30 Deterministic Core
+
+- Implemented strict schemas, four disjoint scenario families, eight reward-defect generators plus
+  aligned controls, declarative reward patches, and an independent task oracle.
+- The verifier requires a failed true-task outcome, proxy return at least 90% of the aligned return,
+  an exploit reduction of at least 0.5 after patching, positive aligned return, and a patched
+  aligned-over-exploit margin of at least 0.5.
+- Extended the no-op exploit horizon so it is genuinely reward-competitive instead of merely
+  invalid behavior.
+- Added schema, deterministic-generation, split-isolation, leakage-marker, strict-JSON, and
+  executable-verifier tests.
+- Validation: `python -m pytest -q` -> 9 passed; `python -m ruff check .` -> passed; 720 generated
+  cases across 20 seeds passed executable verification.
