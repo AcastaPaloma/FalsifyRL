@@ -133,11 +133,17 @@ def test_training_uses_idempotency_and_records_submission_ids() -> None:
         adapted_schema_valid=True,
     )
 
-    result = run_autoscientist(client, state)
+    snapshots = []
+    result = run_autoscientist(
+        client,
+        state,
+        on_run_started=lambda current: snapshots.append(current.to_dict()),
+    )
 
     assert result.autoscientist_run_id == "experiment-456"
     assert result.best_win_rate == 0.81
     assert result.download_available is True
+    assert snapshots[0]["autoscientist_run_id"] == "experiment-456"
     arguments = client.autoscientist.create_arguments
     assert arguments["data_format"] == "instruction"
     assert arguments["idempotency_key"] == "falsifyrl-v1-dataset-123"

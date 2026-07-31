@@ -119,7 +119,11 @@ def main() -> None:
                 args.source_train_csv,
             )
         elif args.action == "train":
-            state = run_autoscientist(client, state)
+            state = run_autoscientist(
+                client,
+                state,
+                on_run_started=lambda current: current.save(args.state),
+            )
         elif args.action == "status":
             state = refresh_status(client, state)
         elif args.action == "download":

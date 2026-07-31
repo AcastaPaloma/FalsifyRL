@@ -449,6 +449,7 @@ def run_autoscientist(
     state: WorkflowState,
     *,
     timeout: float = 14_400,
+    on_run_started: Callable[[WorkflowState], None] | None = None,
 ) -> WorkflowState:
     if (
         not state.dataset_id
@@ -473,6 +474,11 @@ def run_autoscientist(
 
     created = client.autoscientist.create(**arguments)
     state.autoscientist_run_id = str(_value(created, "id"))
+    created_model = _value(created, "model")
+    if created_model is not None:
+        state.resolved_model = str(created_model)
+    if on_run_started is not None:
+        on_run_started(state)
     completed = client.autoscientist.wait_for_completion(
         state.autoscientist_run_id,
         timeout=timeout,
