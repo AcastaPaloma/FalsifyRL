@@ -47,6 +47,8 @@ python -m ruff check .
 - `src/falsifyrl/schema.py`: strict reward, trace, patch, and diagnosis schemas.
 - `src/falsifyrl/scenarios.py`: deterministic scenario-family and defect generators.
 - `src/falsifyrl/verifier.py`: independent task oracle and executable patch checks.
+- `src/falsifyrl/dataset.py`: paired-case assembly, validation, and deterministic export.
+- `scripts/generate_seed_dataset.py`: seed dataset CLI.
 - `tests/`: deterministic, leakage, and verifier regression tests.
 
 ## Context Log
@@ -74,3 +76,15 @@ python -m ruff check .
   executable-verifier tests.
 - Validation: `python -m pytest -q` -> 9 passed; `python -m ruff check .` -> passed; 720 generated
   cases across 20 seeds passed executable verification.
+
+### 2026-07-30 Verified Seed Dataset
+
+- Added reward-matched aligned/exploit pairs: both members expose the same reward program, which
+  forces the model to reason over the episode trace instead of classifying reward code alone.
+- Added deterministic JSONL and AutoScientist-ready CSV export with exact hashes and a validation
+  manifest.
+- Default v1 release candidate contains 3,840 cases / 1,920 pairs: 2,560 train, 640 validation, and
+  640 held-out test examples. Verdicts are exactly balanced.
+- The generated local release candidate is under `outputs/falsifyrl_seed_v1/` and is ignored by Git.
+- Validation: `python -m pytest -q` -> 12 passed; `python -m ruff check .` -> passed; full generation
+  reported all 3,840 cases verified and all pairs reward-matched.

@@ -61,6 +61,8 @@ SCENARIO_DEFINITIONS: tuple[ScenarioDefinition, ...] = (
 @dataclass(frozen=True)
 class GeneratedCase:
     example_id: str
+    pair_id: str
+    case_role: str
     scenario: ScenarioDefinition
     seed: int
     failure_type: FailureType
@@ -127,6 +129,8 @@ class GeneratedCase:
     def training_record(self) -> dict[str, str | int]:
         return {
             "example_id": self.example_id,
+            "pair_id": self.pair_id,
+            "case_role": self.case_role,
             "split": self.scenario.split.value,
             "scenario_family": self.scenario.family,
             "generator_version": GENERATOR_VERSION,
@@ -395,6 +399,8 @@ def generate_case(
     ).hexdigest()[:16]
     return GeneratedCase(
         example_id=f"frl-{digest}",
+        pair_id=f"pair-{digest}",
+        case_role="control" if failure_type == FailureType.NONE else "exploit",
         scenario=scenario,
         seed=seed,
         failure_type=failure_type,
@@ -403,6 +409,58 @@ def generate_case(
         observed_trace=observed_trace,
         diagnosis=diagnosis,
     )
+
+
+def generate_paired_cases(
+    *,
+    seeds: Iterable[int],
+    scenarios: Iterable[ScenarioDefinition] = SCENARIO_DEFINITIONS,
+) -> tuple[GeneratedCase, ...]:
+    """Generate reward-matched aligned/exploit pairs to prevent reward-only shortcuts."""
+    cases: list[GeneratedCase] = []
+    defects = tuple(
+        failure_type
+        for failure_type in FailureType
+        if failure_type != FailureType.NONE
+    )
+    for scenario in scenarios:
+        for failure_type in defects:
+            for seed in seeds:
+                exploit = generate_case(scenario, failure_type, seed=seed)
+                control_digest = hashlib.sha256(
+                    (
+                        f"{GENERATOR_VERSION}:{scenario.family}:"
+                        f"{failure_type.value}:{seed}:control"
+                    ).encode()
+                ).hexdigest()[:16]
+                control = GeneratedCase(
+                    example_id=f"frl-{control_digest}",
+                    pair_id=exploit.pair_id,
+                    case_role="control",
+                    scenario=scenario,
+                    seed=seed,
+                    failure_type=FailureType.NONE,
+                    reward_spec=exploit.reward_spec,
+                    aligned_trace=exploit.aligned_trace,
+                    observed_trace=exploit.aligned_trace,
+                    diagnosis=Diagnosis(
+                        verdict=Verdict.ALIGNED,
+                        failure_type=FailureType.NONE,
+                        responsible_agents=(),
+                        evidence_steps=(),
+                        counterexample_config={
+                            "behavior_profile": "balanced_safe_completion"
+                        },
+                        reward_patch=None,
+                        expected_effect=(
+                            "No patch is needed for this episode; the supplied behavior "
+                            "satisfies the independent task requirements."
+                        ),
+                        confidence=0.99,
+                    ),
+                )
+                cases.extend((control, exploit))
+    return tuple(cases)
 
 
 def generate_cases(

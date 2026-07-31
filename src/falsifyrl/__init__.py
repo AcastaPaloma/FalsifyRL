@@ -6,6 +6,7 @@ from falsifyrl.scenarios import (
     GeneratedCase,
     generate_case,
     generate_cases,
+    generate_paired_cases,
 )
 from falsifyrl.schema import (
     Diagnosis,
@@ -34,5 +35,6 @@ __all__ = [
     "Verdict",
     "generate_case",
     "generate_cases",
+    "generate_paired_cases",
     "verify_case",
 ]

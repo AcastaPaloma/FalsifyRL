@@ -18,9 +18,11 @@ and trains a compact model to recognize and repair them.
 
 ## Current status
 
-The deterministic core supports four disjoint scenario families and eight reward-defect classes,
-plus aligned controls. Dataset generation, baseline evaluation, AutoScientist training, and public
-Hugging Face/Kaggle release tooling are the next milestones.
+The deterministic core supports four disjoint scenario families and eight reward-defect classes.
+The v1 seed generator creates reward-matched control/exploit pairs, verifies every example with the
+independent task oracle, and exports JSONL plus two-column AutoScientist CSV files. Baseline
+evaluation, AutoScientist training, and public Hugging Face/Kaggle release tooling are the next
+milestones.
 
 See [docs/hackathon_plan.md](docs/hackathon_plan.md) for the complete submission contract.
 
@@ -30,5 +32,5 @@ See [docs/hackathon_plan.md](docs/hackathon_plan.md) for the complete submission
 python -m pip install -e .[dev]
 python -m pytest -q
 python -m ruff check .
+python scripts/generate_seed_dataset.py
 ```
-
