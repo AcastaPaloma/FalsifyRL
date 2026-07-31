@@ -16,6 +16,21 @@ one robot can free-ride on a teammate, unsafe motion can be ignored, or a surviv
 doing nothing optimal. FalsifyRL turns those failures into a reproducible falsification benchmark
 and trains a compact model to recognize and repair them.
 
+The nearest open work establishes that reward hacking is real, but leaves a useful gap:
+
+| Work | What it covers | What FalsifyRL adds |
+| --- | --- | --- |
+| [TRACE](https://huggingface.co/datasets/PatronusAI/trace-dataset) | Detection and taxonomy for 517 code-agent trajectories | Embodied multi-agent traces, reward programs, counterexamples, and executable repair |
+| [CheatBench](https://huggingface.co/datasets/steinad/CheatBench) | Monitoring naturally occurring cheating in agent traces | Controlled reward-matched pairs and simulator-derived gold diagnoses |
+| [Reward Hacking Benchmark](https://arxiv.org/abs/2605.02964) | Shortcut exploitation by language-model tool agents | Physical-task invariants, agent responsibility, and patch replay |
+| [Preference-Based Reward Repair](https://arxiv.org/abs/2510.13036) | Iterative additive reward correction from human preferences | A compact critic that emits auditable declarative patches from a single episode |
+| [Drag reduction or reward hacking?](https://arxiv.org/abs/2606.06227) | A concrete multi-agent control failure in fluid dynamics | A reusable cross-family benchmark spanning eight reward defects |
+
+The originality claim is deliberately narrow: FalsifyRL combines reward-matched control/exploit
+pairs, embodied multi-agent responsibility, family-disjoint evaluation, and executable reward
+repair in one open training and evaluation contract. It does not claim to invent reward-hacking
+detection or reward repair.
+
 ## Scientific design
 
 ```mermaid
