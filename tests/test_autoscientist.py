@@ -223,6 +223,79 @@ def test_export_audits_exact_adapted_dataset(tmp_path) -> None:
     assert result.adapted_audit_sha256
 
 
+def test_export_accepts_csv_text_returned_by_sdk(tmp_path) -> None:
+    source = tmp_path / "source.csv"
+    diagnosis = (
+        '{"confidence":0.99,"counterexample_config":{"behavior_profile":"safe"},'
+        '"evidence_steps":[],"expected_effect":"No patch needed.",'
+        '"failure_type":"none","responsible_agents":[],"reward_patch":null,'
+        '"verdict":"aligned"}'
+    )
+    with source.open("w", encoding="utf-8", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=("prompt", "completion"))
+        writer.writeheader()
+        writer.writerow({"prompt": "exact prompt", "completion": diagnosis})
+
+    adapted_buffer = io.StringIO(newline="")
+    writer = csv.DictWriter(
+        adapted_buffer,
+        fieldnames=(
+            "original_prompt",
+            "original_completion",
+            "enhanced_prompt",
+            "enhanced_completion",
+        ),
+    )
+    writer.writeheader()
+    writer.writerow(
+        {
+            "original_prompt": "exact prompt",
+            "original_completion": diagnosis,
+            "enhanced_prompt": "exact prompt",
+            "enhanced_completion": diagnosis,
+        }
+    )
+    client = FakeClient()
+    client.datasets.download = lambda dataset_id, file_format: adapted_buffer.getvalue()
+    state = WorkflowState(
+        plan=_plan(),
+        dataset_id="dataset-123",
+        dataset_status="succeeded",
+        adaptation_run_id="adaptation-789",
+    )
+
+    result = export_and_audit_adapted_dataset(
+        client,
+        state,
+        tmp_path / "adapted.csv",
+        source,
+    )
+
+    assert result.adapted_schema_valid is True
+    assert result.adapted_row_count == 1
+
+
+def test_export_rejects_non_https_download_url(tmp_path) -> None:
+    client = FakeClient()
+    client.datasets.download = lambda dataset_id, file_format: (
+        "http://example.test/adapted.csv"
+    )
+    state = WorkflowState(
+        plan=_plan(),
+        dataset_id="dataset-123",
+        dataset_status="succeeded",
+        adaptation_run_id="adaptation-789",
+    )
+
+    with pytest.raises(ValueError, match="non-HTTPS"):
+        export_and_audit_adapted_dataset(
+            client,
+            state,
+            tmp_path / "adapted.csv",
+            tmp_path / "source.csv",
+        )
+
+
 def test_adaptation_persists_run_id_before_waiting() -> None:
     client = FakeClient()
     state = WorkflowState(

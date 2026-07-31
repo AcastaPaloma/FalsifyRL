@@ -281,13 +281,24 @@ def export_and_audit_adapted_dataset(
     ):
         raise ValueError("a succeeded adaptation run is required before export")
 
-    download_url = client.datasets.download(state.dataset_id, file_format="csv")
-    if not isinstance(download_url, str):
-        raise TypeError("dataset download did not return a URL")
-    parsed = urlparse(download_url)
-    if parsed.scheme != "https" or not parsed.netloc:
-        raise ValueError("dataset download returned a non-HTTPS URL")
-    content = _fetch_https(download_url) if fetcher is None else fetcher(download_url)
+    download_result = client.datasets.download(state.dataset_id, file_format="csv")
+    if not isinstance(download_result, str):
+        raise TypeError("dataset download did not return text")
+    parsed = urlparse(download_result)
+    if parsed.scheme or parsed.netloc:
+        if parsed.scheme != "https" or not parsed.netloc:
+            raise ValueError("dataset download returned a non-HTTPS URL")
+        content = (
+            _fetch_https(download_result)
+            if fetcher is None
+            else fetcher(download_result)
+        )
+    else:
+        if "\n" not in download_result and "\r" not in download_result:
+            raise ValueError(
+                "dataset download returned neither CSV text nor an absolute HTTPS URL"
+            )
+        content = download_result.encode("utf-8")
     if not isinstance(content, bytes):
         raise TypeError("adapted dataset fetcher must return bytes")
 
