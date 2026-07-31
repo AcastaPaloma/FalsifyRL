@@ -16,6 +16,26 @@ from urllib.request import Request, urlopen
 from falsifyrl.schema import Diagnosis
 
 SUPPORTED_SOURCES = frozenset({"file", "huggingface", "kaggle"})
+SUPPORTED_HYPERPARAM_OVERRIDES = frozenset(
+    {
+        "batch_size",
+        "learning_rate",
+        "lora_alpha",
+        "lora_dropout",
+        "lora_r",
+        "lora_trainable_modules",
+        "lr_scheduler_type",
+        "max_grad_norm",
+        "min_lr_ratio",
+        "n_epochs",
+        "n_evals",
+        "scheduler_num_cycles",
+        "train_on_inputs",
+        "training_type",
+        "warmup_ratio",
+        "weight_decay",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -27,6 +47,7 @@ class AutoScientistPlan:
     max_iterations: int = 3
     target_win_rate: float = 0.75
     model: str | None = None
+    hyperparams: dict[str, Any] | None = None
     expected_training_rows: int = 2560
 
     def __post_init__(self) -> None:
@@ -42,6 +63,12 @@ class AutoScientistPlan:
             raise ValueError("target_win_rate must be in (0, 1]")
         if self.expected_training_rows < 1:
             raise ValueError("expected_training_rows must be positive")
+        if self.hyperparams is not None:
+            unknown = set(self.hyperparams) - SUPPORTED_HYPERPARAM_OVERRIDES
+            if unknown:
+                raise ValueError(
+                    f"unsupported AutoScientist hyperparameter overrides: {sorted(unknown)}"
+                )
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -647,6 +674,22 @@ def run_autoscientist(
     }
     if state.plan.model:
         arguments["model"] = state.plan.model
+    if state.plan.hyperparams:
+        arguments["hyperparams"] = state.plan.hyperparams
+        identity = json.dumps(
+            {
+                "dataset_id": state.training_dataset_id,
+                "hyperparams": state.plan.hyperparams,
+                "max_iterations": state.plan.max_iterations,
+                "model": state.plan.model,
+                "target_win_rate": state.plan.target_win_rate,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        arguments["idempotency_key"] = (
+            f"falsifyrl-v3-{hashlib.sha256(identity.encode()).hexdigest()[:24]}"
+        )
 
     created = client.autoscientist.create(**arguments)
     if (
@@ -657,6 +700,9 @@ def run_autoscientist(
     state.autoscientist_run_id = str(_value(created, "id"))
     if state.autoscientist_run_id not in state.autoscientist_run_ids:
         state.autoscientist_run_ids.append(state.autoscientist_run_id)
+    state.autoscientist_status = None
+    state.best_win_rate = None
+    state.download_available = False
     created_model = _value(created, "model")
     if created_model is not None:
         state.resolved_model = str(created_model)

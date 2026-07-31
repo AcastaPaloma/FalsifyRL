@@ -192,6 +192,59 @@ def test_training_uses_idempotency_and_records_submission_ids() -> None:
     assert "api_key" not in result.to_dict()
 
 
+def test_training_refinement_uses_distinct_hyperparameter_identity() -> None:
+    client = FakeClient()
+    state = WorkflowState(
+        plan=AutoScientistPlan(
+            source="file",
+            local_file="train.jsonl",
+            expected_training_rows=1,
+            model="meta-llama/Llama-3.2-3B-Instruct",
+            hyperparams={"learning_rate": 2e-4, "n_epochs": 3.0},
+        ),
+        dataset_id="dataset-123",
+        dataset_status="succeeded",
+        adapted_export_sha256="a" * 64,
+        adapted_audit_sha256="b" * 64,
+        adapted_row_count=1,
+        adapted_prompt_column="prompt",
+        adapted_completion_column="completion",
+        adapted_schema_valid=True,
+        training_dataset_id="training-456",
+        training_dataset_status="succeeded",
+        training_prompt_column="original_prompt",
+        training_completion_column="original_completion",
+        autoscientist_run_id="prior-run",
+        autoscientist_run_ids=["prior-run"],
+        autoscientist_status="succeeded",
+        best_win_rate=0.51,
+        download_available=True,
+    )
+    snapshots = []
+
+    result = run_autoscientist(
+        client,
+        state,
+        on_run_started=lambda current: snapshots.append(current.to_dict()),
+    )
+
+    arguments = client.autoscientist.create_arguments
+    assert arguments["hyperparams"] == {
+        "learning_rate": 2e-4,
+        "n_epochs": 3.0,
+    }
+    assert arguments["idempotency_key"].startswith("falsifyrl-v3-")
+    assert arguments["idempotency_key"] != "falsifyrl-v2-training-456"
+    assert snapshots[0]["autoscientist_run_ids"] == [
+        "prior-run",
+        "experiment-456",
+    ]
+    assert snapshots[0]["autoscientist_status"] is None
+    assert snapshots[0]["best_win_rate"] is None
+    assert snapshots[0]["download_available"] is False
+    assert result.autoscientist_status == "succeeded"
+
+
 def test_training_rejects_unreviewed_adapted_data() -> None:
     state = WorkflowState(
         plan=_plan(),
