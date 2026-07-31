@@ -24,8 +24,9 @@ The experiment is designed to be falsifiable:
 - the final model is evaluated on all 640 held-out `crossing_navigation` cases
 
 Using Adaptive Data and AutoScientist, the adapted model reached an AutoScientist best win rate of
-**{{AUTOSCIENTIST_BEST_WIN_RATE}}** and improved held-out composite score from **0.0000** to
-**{{TRAINED_COMPOSITE_SCORE}}**, with **{{TRAINED_JSON_VALIDITY}}** JSON validity.
+**{{AUTOSCIENTIST_BEST_WIN_RATE}}** and improved held-out composite score from
+**{{BASE_COMPOSITE_SCORE}}** to **{{TRAINED_COMPOSITE_SCORE}}**, with
+**{{TRAINED_JSON_VALIDITY}}** JSON validity.
 
 Everything is open and reproducible:
 
@@ -55,7 +56,7 @@ Post 1:
 
 Post 2:
 
-> Held-out composite: 0.0000 → {{TRAINED_COMPOSITE_SCORE}}
+> Held-out composite: {{BASE_COMPOSITE_SCORE}} → {{TRAINED_COMPOSITE_SCORE}}
 > AutoScientist win rate: {{AUTOSCIENTIST_BEST_WIN_RATE}}
 >
 > Demo: {{HUGGINGFACE_SPACE_URL}}
