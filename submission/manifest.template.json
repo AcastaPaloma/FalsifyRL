@@ -19,6 +19,23 @@
     "autoscientist_run_id": null,
     "base_model_id": null
   },
+  "form_inputs": {
+    "first_name": null,
+    "last_name": null,
+    "email": null,
+    "phone_number": null,
+    "job_title": null,
+    "company_name": null,
+    "street_address": null,
+    "city": null,
+    "state_region": null,
+    "postal_code": null,
+    "country": null,
+    "team_members": null,
+    "team_captain": null,
+    "discord_username": null,
+    "hackindia_submission": null
+  },
   "metrics": {
     "base_model_composite": null,
     "trained_model_composite": null,
@@ -39,10 +56,11 @@
   },
   "attestations": {
     "accepted_into_challenge": null,
-    "age_of_majority": null,
+    "at_least_18": null,
     "not_quebec_resident": null,
     "participation_legal": null,
     "one_team_only": null,
+    "terms_and_conditions_accepted": null,
     "dataset_public_on_both_platforms": null,
     "same_dataset_used_for_training": null,
     "weights_public_on_both_platforms": null,
@@ -51,4 +69,3 @@
     "no_secrets_in_public_artifacts": null
   }
 }
-

@@ -26,6 +26,20 @@ def _valid_manifest() -> dict:
             "autoscientist_run_id": "run-1",
             "base_model_id": "org/base",
         },
+        "form_inputs": {
+            "first_name": "Ada",
+            "last_name": "Lovelace",
+            "email": "ada@example.test",
+            "job_title": "Researcher",
+            "company_name": "Independent",
+            "street_address": "1 Example Street",
+            "city": "Example City",
+            "state_region": "Example Region",
+            "postal_code": "A1A 1A1",
+            "country": "Canada",
+            "discord_username": "ada",
+            "hackindia_submission": False,
+        },
         "metrics": {
             "base_model_composite": 0.45,
             "trained_model_composite": 0.8,
@@ -46,10 +60,11 @@ def _valid_manifest() -> dict:
         },
         "attestations": {
             "accepted_into_challenge": True,
-            "age_of_majority": True,
+            "at_least_18": True,
             "not_quebec_resident": True,
             "participation_legal": True,
             "one_team_only": True,
+            "terms_and_conditions_accepted": True,
             "dataset_public_on_both_platforms": True,
             "same_dataset_used_for_training": True,
             "weights_public_on_both_platforms": True,
@@ -72,12 +87,14 @@ def test_submission_fails_closed_on_missing_artifact_or_improvement() -> None:
     manifest = copy.deepcopy(_valid_manifest())
     manifest["links"]["kaggle_model"] = None
     manifest["metrics"]["trained_model_composite"] = 0.4
+    manifest["form_inputs"]["hackindia_submission"] = None
 
     audit = audit_submission_manifest(manifest)
 
     assert audit.valid is False
     assert any("kaggle_model" in error for error in audit.errors)
     assert any("does not improve" in error for error in audit.errors)
+    assert any("HackIndia" in error for error in audit.errors)
 
 
 def test_submission_template_is_intentionally_incomplete() -> None:
@@ -100,4 +117,3 @@ def test_manifest_loader_rejects_non_object(tmp_path: Path) -> None:
         assert "root must be an object" in str(error)
     else:
         raise AssertionError("expected non-object manifest rejection")
-

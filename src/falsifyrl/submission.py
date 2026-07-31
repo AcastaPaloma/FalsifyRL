@@ -22,12 +22,26 @@ REQUIRED_IDS = {
     "autoscientist_run_id",
     "base_model_id",
 }
+REQUIRED_FORM_INPUTS = {
+    "first_name",
+    "last_name",
+    "email",
+    "job_title",
+    "company_name",
+    "street_address",
+    "city",
+    "state_region",
+    "postal_code",
+    "country",
+    "discord_username",
+}
 REQUIRED_ATTESTATIONS = {
     "accepted_into_challenge",
-    "age_of_majority",
+    "at_least_18",
     "not_quebec_resident",
     "participation_legal",
     "one_team_only",
+    "terms_and_conditions_accepted",
     "dataset_public_on_both_platforms",
     "same_dataset_used_for_training",
     "weights_public_on_both_platforms",
@@ -95,6 +109,14 @@ def audit_submission_manifest(manifest: dict[str, Any]) -> SubmissionAudit:
         value = identifiers.get(name)
         if not isinstance(value, str) or not value.strip():
             errors.append(f"required identifier is missing: {name}")
+
+    form_inputs = manifest.get("form_inputs", {})
+    for name in REQUIRED_FORM_INPUTS:
+        value = form_inputs.get(name)
+        if not isinstance(value, str) or not value.strip():
+            errors.append(f"required private form input is missing: {name}")
+    if not isinstance(form_inputs.get("hackindia_submission"), bool):
+        errors.append("HackIndia submission status must be explicitly true or false")
 
     attestations = manifest.get("attestations", {})
     for name in REQUIRED_ATTESTATIONS:
