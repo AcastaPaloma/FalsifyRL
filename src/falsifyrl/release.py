@@ -173,6 +173,80 @@ def require_kaggle_token() -> str:
     return token
 
 
+def set_kaggle_dataset_public(
+    *,
+    owner: str,
+    slug: str,
+    title: str,
+    subtitle: str,
+    description: str,
+    license_name: str = "MIT",
+) -> None:
+    try:
+        from kagglehub.clients import build_kaggle_client
+        from kagglesdk.datasets.types.dataset_api_service import (
+            ApiUpdateDatasetMetadataRequest,
+        )
+        from kagglesdk.datasets.types.dataset_types import (
+            DatasetSettings,
+            SettingsLicense,
+        )
+    except ImportError as error:
+        raise RuntimeError(
+            "Install release dependencies with `pip install -e .[release]`."
+        ) from error
+    settings = DatasetSettings()
+    settings.title = title
+    settings.subtitle = subtitle
+    settings.description = description
+    settings.is_private = False
+    license_value = SettingsLicense()
+    license_value.name = license_name
+    settings.licenses = [license_value]
+    settings.expected_update_frequency = "never"
+
+    request = ApiUpdateDatasetMetadataRequest()
+    request.owner_slug = owner
+    request.dataset_slug = slug
+    request.settings = settings
+    with build_kaggle_client() as client:
+        response = client.datasets.dataset_api_client.update_dataset_metadata(request)
+    if response.errors:
+        raise RuntimeError(f"Kaggle dataset metadata update failed: {response.errors}")
+
+
+def set_kaggle_model_public(
+    *,
+    owner: str,
+    slug: str,
+    title: str,
+    subtitle: str,
+    description: str,
+) -> None:
+    try:
+        from google.protobuf.field_mask_pb2 import FieldMask
+        from kagglehub.clients import build_kaggle_client
+        from kagglesdk.models.types.model_api_service import ApiUpdateModelRequest
+    except ImportError as error:
+        raise RuntimeError(
+            "Install release dependencies with `pip install -e .[release]`."
+        ) from error
+    request = ApiUpdateModelRequest()
+    request.owner_slug = owner
+    request.model_slug = slug
+    request.title = title
+    request.subtitle = subtitle
+    request.description = description
+    request.is_private = False
+    request.update_mask = FieldMask(
+        paths=("title", "subtitle", "description", "is_private")
+    )
+    with build_kaggle_client() as client:
+        response = client.models.model_api_client.update_model(request)
+    if response.error:
+        raise RuntimeError(f"Kaggle model metadata update failed: {response.error}")
+
+
 def publish_huggingface_dataset(
     bundle_dir: str | Path,
     *,
@@ -215,6 +289,24 @@ def publish_kaggle_dataset(
         handle,
         str(bundle_dir),
         version_notes="Verified FalsifyRL reward-matched seed dataset v1",
+    )
+    set_kaggle_dataset_public(
+        owner=owner,
+        slug=slug,
+        title=(
+            "FalsifyRL AutoScientist-Adapted Dataset"
+            if slug == "falsifyrl-adapted"
+            else "FalsifyRL Source Reward-Hacking Dataset"
+        ),
+        subtitle=(
+            "Exact audited Adaptive Data export with family-disjoint held-out splits"
+            if slug == "falsifyrl-adapted"
+            else "Reward-matched embodied multi-agent traces with executable repair labels"
+        ),
+        description=(
+            "Verified FalsifyRL data for evidence-grounded reward-hacking diagnosis "
+            "and executable repair in embodied multi-agent reinforcement learning."
+        ),
     )
     return f"https://www.kaggle.com/datasets/{handle}"
 
@@ -292,6 +384,16 @@ def publish_kaggle_model(
         str(bundle_dir),
         license_name="Apache 2.0",
         version_notes="Best FalsifyRL AutoScientist LoRA checkpoint",
+    )
+    set_kaggle_model_public(
+        owner=owner,
+        slug=slug,
+        title="FalsifyRL AutoScientist Reward-Hacking Critic",
+        subtitle="LoRA critic for evidence-grounded diagnosis and executable reward repair",
+        description=(
+            "Best audited AutoScientist checkpoint trained on the exact FalsifyRL "
+            "adapted dataset and evaluated on a family-disjoint held-out robotics split."
+        ),
     )
     return f"https://www.kaggle.com/models/{handle}"
 

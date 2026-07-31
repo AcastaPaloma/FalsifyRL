@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -15,6 +16,8 @@ from falsifyrl.release import (
     render_model_card,
     require_huggingface_token,
     require_kaggle_token,
+    set_kaggle_dataset_public,
+    set_kaggle_model_public,
 )
 from scripts.continue_dataset_release import await_audited_export
 from scripts.continue_dataset_release import (
@@ -183,6 +186,62 @@ def test_model_bundle_audit_rejects_placeholders_and_missing_weights(
     (tmp_path / "adapter_model.safetensors").write_bytes(b"weights")
     with pytest.raises(ValueError, match="unresolved markers"):
         audit_model_bundle(tmp_path)
+
+
+def test_kaggle_publication_explicitly_sets_dataset_and_model_visibility(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured = {}
+
+    class DatasetApi:
+        def update_dataset_metadata(self, request):
+            captured["dataset"] = request
+            return SimpleNamespace(errors=[])
+
+    class ModelApi:
+        def update_model(self, request):
+            captured["model"] = request
+            return SimpleNamespace(error="")
+
+    client = SimpleNamespace(
+        datasets=SimpleNamespace(dataset_api_client=DatasetApi()),
+        models=SimpleNamespace(model_api_client=ModelApi()),
+    )
+
+    class ClientContext:
+        def __enter__(self):
+            return client
+
+        def __exit__(self, *args):
+            return False
+
+    import kagglehub.clients
+
+    monkeypatch.setattr(
+        kagglehub.clients,
+        "build_kaggle_client",
+        lambda: ClientContext(),
+    )
+
+    set_kaggle_dataset_public(
+        owner="owner",
+        slug="data",
+        title="Data",
+        subtitle="Subtitle",
+        description="Description",
+    )
+    set_kaggle_model_public(
+        owner="owner",
+        slug="model",
+        title="Model",
+        subtitle="Subtitle",
+        description="Description",
+    )
+
+    assert captured["dataset"].settings.is_private is False
+    assert captured["dataset"].settings.licenses[0].name == "MIT"
+    assert captured["model"].is_private is False
+    assert "is_private" in captured["model"].update_mask.paths
 
 
 def test_dataset_release_waits_for_exact_audited_export(tmp_path: Path) -> None:
