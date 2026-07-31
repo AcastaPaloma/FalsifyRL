@@ -28,7 +28,8 @@ $env:KAGGLE_API_TOKEN = "..."
 ```
 
 The Hugging Face token needs write access. Generate the Kaggle token from the current API-token
-settings. Do not pass either token on the command line.
+settings. Alternatively, copy `.env.example` to the ignored `.env` file and fill the token and
+owner fields there. Do not pass either token on the command line.
 
 ## Publish the dataset
 

@@ -19,10 +19,12 @@ dev = [
 ]
 platforms = [
   "adaption>=0.6.2,<0.7",
+  "python-dotenv>=1.0,<2",
 ]
 release = [
   "huggingface-hub>=1.26,<2",
   "kagglehub>=1.0,<2",
+  "python-dotenv>=1.0,<2",
 ]
 demo = [
   "gradio>=5.49,<6",

@@ -5,6 +5,8 @@ import json
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 from falsifyrl.autoscientist import (
     AutoScientistPlan,
     WorkflowState,
@@ -75,6 +77,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    load_dotenv()
     args = parse_args()
     if args.action == "plan":
         state = WorkflowState(plan=_plan_from_args(args))
@@ -99,4 +102,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -147,5 +147,8 @@ Torch/Stable-Baselines requirements and is not authoritative.
   variables.
 - Local browser QA at `http://127.0.0.1:7862` confirmed visible hero text, matched-pair labels,
   scenario/task/reward/trace rendering, and the explicit checkpoint-pending interaction.
+- External workflow scripts now load the ignored local `.env` file. The user can add Adaption,
+  Hugging Face, and Kaggle tokens plus owner slugs without exposing credentials in chat or command
+  history.
 - Validation: `python -m pytest -q` -> 28 passed; `python -m ruff check .` -> passed; `space/app.py`
   compiled; the staged bundle contains 16 examples across eight pairs.
