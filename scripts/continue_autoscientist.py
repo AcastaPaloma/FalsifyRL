@@ -12,6 +12,7 @@ from falsifyrl.autoscientist import (
     WorkflowState,
     create_client,
     export_and_audit_adapted_dataset,
+    prepare_training_dataset,
     run_autoscientist,
 )
 
@@ -132,6 +133,23 @@ def main() -> None:
                 "adapted_export_sha256": state.adapted_export_sha256,
                 "adapted_row_count": state.adapted_row_count,
                 "adapted_schema_valid": state.adapted_schema_valid,
+            },
+            sort_keys=True,
+        ),
+        flush=True,
+    )
+
+    state = prepare_training_dataset(
+        client,
+        state,
+        on_dataset_created=lambda current: current.save(args.state),
+    )
+    state.save(args.state)
+    print(
+        json.dumps(
+            {
+                "training_dataset_id": state.training_dataset_id,
+                "training_dataset_status": state.training_dataset_status,
             },
             sort_keys=True,
         ),

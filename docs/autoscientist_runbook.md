@@ -76,6 +76,11 @@ For the recorded run, `enhanced_prompt` is blank and `enhanced_completion` fails
 label-preservation on part of the export. The audit therefore rejects both enhanced columns and
 selects the original `prompt` / `completion` columns uniformly from the exact processed export.
 
+Because AutoScientist's trainable view of the adaptation run does not expose those original
+columns, the exact audited export is uploaded byte-for-byte once more with SDK passthrough
+processing and the audited `prompt` / `completion` mapping. Passthrough materializes the upload
+directly as a trainable dataset; it does not run a second Adaptive Data transformation.
+
 ## 4. Train
 
 ```powershell

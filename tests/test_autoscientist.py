@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import json
 from types import SimpleNamespace
@@ -12,6 +13,7 @@ from falsifyrl.autoscientist import (
     WorkflowState,
     export_and_audit_adapted_dataset,
     ingest_and_estimate,
+    prepare_training_dataset,
     require_api_key,
     run_adaptation,
     run_autoscientist,
@@ -22,14 +24,33 @@ from scripts.continue_autoscientist import await_existing_adaptation
 class FakeDatasets:
     def __init__(self) -> None:
         self.run_calls: list[dict] = []
+        self.upload_calls: list[dict] = []
 
     def create_from_huggingface(self, **kwargs):
         assert kwargs["files"] == ["train.csv"]
         return SimpleNamespace(dataset_id="dataset-123")
 
     def get(self, dataset_id):
+        if dataset_id == "training-456":
+            mapping = (
+                self.upload_calls[-1]["column_mapping"]
+                if self.upload_calls
+                else {
+                    "prompt": "enhanced_prompt",
+                    "completion": "enhanced_completion",
+                }
+            )
+            return SimpleNamespace(
+                status="succeeded",
+                row_count=1,
+                configured_column_mapping=mapping,
+            )
         assert dataset_id == "dataset-123"
         return SimpleNamespace(status="awaiting_input", row_count=1)
+
+    def upload_file(self, path, **kwargs):
+        self.upload_calls.append({"path": path, **kwargs})
+        return SimpleNamespace(dataset_id="training-456", status="succeeded")
 
     def wait_for_completion(self, dataset_id, timeout):
         assert dataset_id == "dataset-123"
@@ -132,9 +153,11 @@ def test_training_uses_idempotency_and_records_submission_ids() -> None:
         adapted_export_sha256="a" * 64,
         adapted_audit_sha256="b" * 64,
         adapted_row_count=1,
-        adapted_prompt_column="enhanced_prompt",
-        adapted_completion_column="enhanced_completion",
+        adapted_prompt_column="prompt",
+        adapted_completion_column="completion",
         adapted_schema_valid=True,
+        training_dataset_id="training-456",
+        training_dataset_status="succeeded",
     )
 
     snapshots = []
@@ -151,10 +174,11 @@ def test_training_uses_idempotency_and_records_submission_ids() -> None:
     arguments = client.autoscientist.create_arguments
     assert arguments["data_format"] == "instruction"
     assert arguments["column_mapping"] == {
-        "prompt": "enhanced_prompt",
-        "completion": "enhanced_completion",
+        "prompt": "prompt",
+        "completion": "completion",
     }
-    assert arguments["idempotency_key"] == "falsifyrl-v1-dataset-123"
+    assert arguments["dataset_id"] == "training-456"
+    assert arguments["idempotency_key"] == "falsifyrl-v2-training-456"
     assert "training_type" not in arguments
     assert "api_key" not in result.to_dict()
 
@@ -302,14 +326,53 @@ def test_training_accepts_audited_exact_duplicate_collapse() -> None:
         adapted_export_sha256="a" * 64,
         adapted_audit_sha256="b" * 64,
         adapted_row_count=1,
-        adapted_prompt_column="enhanced_prompt",
-        adapted_completion_column="enhanced_completion",
+        adapted_prompt_column="prompt",
+        adapted_completion_column="completion",
         adapted_schema_valid=True,
+        training_dataset_id="training-456",
+        training_dataset_status="succeeded",
     )
 
     result = run_autoscientist(FakeClient(), state)
 
     assert result.autoscientist_status == "succeeded"
+
+
+def test_prepare_training_dataset_uses_exact_passthrough_export(tmp_path) -> None:
+    export = tmp_path / "adapted.csv"
+    export.write_text(
+        "prompt,completion,enhanced_completion\np,c,invalid\n",
+        encoding="utf-8",
+    )
+    state = WorkflowState(
+        plan=_plan(),
+        dataset_id="dataset-123",
+        dataset_status="succeeded",
+        adapted_export_path=str(export),
+        adapted_export_sha256=hashlib.sha256(export.read_bytes()).hexdigest(),
+        adapted_audit_sha256="b" * 64,
+        adapted_row_count=1,
+        adapted_prompt_column="prompt",
+        adapted_completion_column="completion",
+        adapted_schema_valid=True,
+    )
+    snapshots = []
+    client = FakeClient()
+
+    result = prepare_training_dataset(
+        client,
+        state,
+        on_dataset_created=lambda current: snapshots.append(current.to_dict()),
+    )
+
+    assert result.training_dataset_id == "training-456"
+    assert result.training_dataset_status == "succeeded"
+    assert snapshots[0]["training_dataset_id"] == "training-456"
+    assert client.datasets.upload_calls[0]["processing_mode"] == "passthrough"
+    assert client.datasets.upload_calls[0]["column_mapping"] == {
+        "prompt": "prompt",
+        "completion": "completion",
+    }
 
 
 def test_export_rejects_non_https_download_url(tmp_path) -> None:

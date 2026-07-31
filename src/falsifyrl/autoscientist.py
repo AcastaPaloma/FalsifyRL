@@ -6,7 +6,7 @@ import json
 import os
 import time
 from collections.abc import Callable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -62,7 +62,10 @@ class WorkflowState:
     adapted_prompt_column: str | None = None
     adapted_completion_column: str | None = None
     adapted_schema_valid: bool = False
+    training_dataset_id: str | None = None
+    training_dataset_status: str | None = None
     autoscientist_run_id: str | None = None
+    autoscientist_run_ids: list[str] = field(default_factory=list)
     autoscientist_status: str | None = None
     best_win_rate: float | None = None
     resolved_model: str | None = None
@@ -84,7 +87,10 @@ class WorkflowState:
             "adapted_prompt_column": self.adapted_prompt_column,
             "adapted_completion_column": self.adapted_completion_column,
             "adapted_schema_valid": self.adapted_schema_valid,
+            "training_dataset_id": self.training_dataset_id,
+            "training_dataset_status": self.training_dataset_status,
             "autoscientist_run_id": self.autoscientist_run_id,
+            "autoscientist_run_ids": self.autoscientist_run_ids,
             "autoscientist_status": self.autoscientist_status,
             "best_win_rate": self.best_win_rate,
             "resolved_model": self.resolved_model,
@@ -383,6 +389,64 @@ def export_and_audit_adapted_dataset(
     return state
 
 
+def prepare_training_dataset(
+    client: Any,
+    state: WorkflowState,
+    *,
+    timeout: float = 3600,
+    on_dataset_created: Callable[[WorkflowState], None] | None = None,
+) -> WorkflowState:
+    if (
+        not state.adapted_schema_valid
+        or not state.adapted_export_path
+        or not state.adapted_export_sha256
+        or not state.adapted_row_count
+        or not state.adapted_prompt_column
+        or not state.adapted_completion_column
+    ):
+        raise ValueError("an audited adapted export is required before passthrough upload")
+    export_path = Path(state.adapted_export_path)
+    if not export_path.is_file() or _sha256(export_path) != state.adapted_export_sha256:
+        raise ValueError("adapted export file does not match the audited SHA-256")
+
+    if not state.training_dataset_id:
+        created = client.datasets.upload_file(
+            export_path,
+            name="falsifyrl-autoscientist-train-v1",
+            processing_mode="passthrough",
+            column_mapping={
+                "prompt": state.adapted_prompt_column,
+                "completion": state.adapted_completion_column,
+            },
+        )
+        state.training_dataset_id = str(_value(created, "dataset_id"))
+        state.training_dataset_status = str(_value(created, "status"))
+        if on_dataset_created is not None:
+            on_dataset_created(state)
+
+    if state.training_dataset_status != "succeeded":
+        completed = client.datasets.wait_for_completion(
+            state.training_dataset_id,
+            timeout=timeout,
+        )
+        state.training_dataset_status = str(_value(completed, "status"))
+    if state.training_dataset_status != "succeeded":
+        raise RuntimeError(
+            f"training dataset ended with status {state.training_dataset_status}"
+        )
+
+    dataset = client.datasets.get(state.training_dataset_id)
+    if int(_value(dataset, "row_count", 0)) != state.adapted_row_count:
+        raise ValueError("passthrough training dataset row count does not match export")
+    mapping = _value(dataset, "configured_column_mapping", {}) or {}
+    if _value(mapping, "prompt") != state.adapted_prompt_column or _value(
+        mapping,
+        "completion",
+    ) != state.adapted_completion_column:
+        raise ValueError("passthrough training dataset mapping does not match audit")
+    return state
+
+
 def ingest_and_estimate(
     client: Any,
     state: WorkflowState,
@@ -520,12 +584,14 @@ def run_autoscientist(
         or not state.adapted_audit_sha256
         or not state.adapted_prompt_column
         or not state.adapted_completion_column
+        or not state.training_dataset_id
+        or state.training_dataset_status != "succeeded"
     ):
         raise ValueError(
             "an exported and audited exact adapted dataset is required before training"
         )
     arguments: dict[str, Any] = {
-        "dataset_id": state.dataset_id,
+        "dataset_id": state.training_dataset_id,
         "max_iterations": state.plan.max_iterations,
         "target_win_rate": state.plan.target_win_rate,
         "data_format": "instruction",
@@ -533,13 +599,22 @@ def run_autoscientist(
             "prompt": state.adapted_prompt_column,
             "completion": state.adapted_completion_column,
         },
-        "idempotency_key": f"falsifyrl-v1-{state.dataset_id}",
+        "idempotency_key": (
+            f"falsifyrl-v2-{state.training_dataset_id}"
+        ),
     }
     if state.plan.model:
         arguments["model"] = state.plan.model
 
     created = client.autoscientist.create(**arguments)
+    if (
+        state.autoscientist_run_id
+        and state.autoscientist_run_id not in state.autoscientist_run_ids
+    ):
+        state.autoscientist_run_ids.append(state.autoscientist_run_id)
     state.autoscientist_run_id = str(_value(created, "id"))
+    if state.autoscientist_run_id not in state.autoscientist_run_ids:
+        state.autoscientist_run_ids.append(state.autoscientist_run_id)
     created_model = _value(created, "model")
     if created_model is not None:
         state.resolved_model = str(created_model)
