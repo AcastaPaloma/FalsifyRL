@@ -7,7 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from falsifyrl.release import prepare_model_bundle
+from falsifyrl.autoscientist import AutoScientistPlan, WorkflowState
+from falsifyrl.release import extract_adapter_checkpoint, prepare_model_bundle
+from scripts.continue_model_evaluation import await_successful_training
 
 
 def _checkpoint(path: Path) -> None:
@@ -56,6 +58,46 @@ def test_checkpoint_preparation_extracts_and_audits_adapter(tmp_path: Path) -> N
     assert "adapter_model.safetensors" in manifest["files"]
 
 
+def test_checkpoint_can_be_extracted_for_prepublication_evaluation(
+    tmp_path: Path,
+) -> None:
+    archive = tmp_path / "checkpoint.tgz"
+    _checkpoint(archive)
+
+    adapter_root = extract_adapter_checkpoint(archive, tmp_path / "extracted")
+
+    assert adapter_root.name == "checkpoint"
+    assert (adapter_root / "adapter_model.safetensors").read_bytes() == (
+        b"safe-tensor-bytes"
+    )
+
+
+def test_model_evaluation_waits_for_downloadable_successful_run(
+    tmp_path: Path,
+) -> None:
+    state_path = tmp_path / "workflow.json"
+    WorkflowState(
+        plan=AutoScientistPlan(
+            source="file",
+            local_file="train.jsonl",
+            expected_training_rows=1,
+        ),
+        autoscientist_run_id="experiment-123",
+        autoscientist_status="succeeded",
+        best_win_rate=0.8,
+        download_available=True,
+    ).save(state_path)
+
+    state = await_successful_training(
+        state_path,
+        poll_seconds=0,
+        timeout_seconds=1,
+    )
+
+    assert state.autoscientist_run_id == "experiment-123"
+    assert state.best_win_rate == 0.8
+
+
 def test_checkpoint_preparation_rejects_path_traversal(tmp_path: Path) -> None:
     archive = tmp_path / "unsafe.tgz"
     with tarfile.open(archive, "w:gz") as bundle:
@@ -74,4 +116,3 @@ def test_checkpoint_preparation_rejects_path_traversal(tmp_path: Path) -> None:
             best_win_rate=0.8,
             evaluation_report=tmp_path / "missing.json",
         )
-

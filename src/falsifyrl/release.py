@@ -380,6 +380,30 @@ def _safe_extract_archive(archive: Path, destination: Path) -> None:
         bundle.extractall(destination)
 
 
+def extract_adapter_checkpoint(
+    checkpoint_archive: str | Path,
+    destination: str | Path,
+) -> Path:
+    archive = Path(checkpoint_archive)
+    extraction_root = Path(destination)
+    if extraction_root.exists() and any(extraction_root.iterdir()):
+        raise ValueError(
+            f"checkpoint extraction destination must be empty: {extraction_root}"
+        )
+    extraction_root.mkdir(parents=True, exist_ok=True)
+    _safe_extract_archive(archive, extraction_root)
+    adapter_configs = list(extraction_root.rglob("adapter_config.json"))
+    if len(adapter_configs) != 1:
+        raise ValueError(
+            "checkpoint must contain exactly one adapter_config.json, "
+            f"found {len(adapter_configs)}"
+        )
+    adapter_root = adapter_configs[0].parent
+    if not (adapter_root / "adapter_model.safetensors").is_file():
+        raise ValueError("checkpoint is missing adapter_model.safetensors")
+    return adapter_root
+
+
 def prepare_model_bundle(
     checkpoint_archive: str | Path,
     bundle_dir: str | Path,
@@ -399,17 +423,7 @@ def prepare_model_bundle(
     destination.mkdir(parents=True, exist_ok=True)
 
     with tempfile.TemporaryDirectory(prefix="falsifyrl-checkpoint-") as temporary:
-        extraction_root = Path(temporary)
-        _safe_extract_archive(archive, extraction_root)
-        adapter_configs = list(extraction_root.rglob("adapter_config.json"))
-        if len(adapter_configs) != 1:
-            raise ValueError(
-                "checkpoint must contain exactly one adapter_config.json, "
-                f"found {len(adapter_configs)}"
-            )
-        adapter_root = adapter_configs[0].parent
-        if not (adapter_root / "adapter_model.safetensors").is_file():
-            raise ValueError("checkpoint is missing adapter_model.safetensors")
+        adapter_root = extract_adapter_checkpoint(archive, temporary)
         for source in adapter_root.iterdir():
             target = destination / source.name
             if source.is_dir():
