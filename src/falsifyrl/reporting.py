@@ -1,0 +1,125 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+REQUIRED_METRICS = (
+    "json_validity",
+    "verdict_accuracy",
+    "verdict_macro_f1",
+    "failure_type_accuracy",
+    "failure_type_macro_f1",
+    "responsible_agents_exact_match",
+    "evidence_steps_f1",
+    "executable_patch_success",
+    "composite_score",
+)
+
+
+@dataclass(frozen=True)
+class ComparisonReport:
+    value: dict[str, Any]
+
+    def to_markdown(self) -> str:
+        metrics = self.value["metrics"]
+        rows = [
+            "| Metric | Base | AutoScientist | Improvement |",
+            "| --- | ---: | ---: | ---: |",
+        ]
+        for name in REQUIRED_METRICS:
+            base = metrics["base"][name]
+            adapted = metrics["adapted"][name]
+            improvement = metrics["improvement"][name]
+            rows.append(
+                f"| `{name}` | {base:.4f} | {adapted:.4f} | {improvement:+.4f} |"
+            )
+        evidence = self.value["evidence"]
+        return "\n".join(
+            [
+                "# FalsifyRL Held-Out Evaluation",
+                "",
+                "The exact base model and AutoScientist adapter were evaluated on the same "
+                "640-example, family-disjoint `crossing_navigation` test split. Predicted reward "
+                "patches were executed against exploit and aligned traces.",
+                "",
+                *rows,
+                "",
+                "## Artifact identity",
+                "",
+                f"- Base model: `{evidence['base_model_id']}`",
+                f"- Dataset manifest SHA-256: `{evidence['dataset_manifest_sha256']}`",
+                f"- Adapter SHA-256: `{evidence['adapter_sha256']}`",
+                f"- AutoScientist run: `{evidence['autoscientist_run_id']}`",
+                "",
+                "Submission thresholds: **PASS**",
+                "",
+            ]
+        )
+
+
+def build_comparison_report(
+    base_report: dict[str, Any],
+    adapted_report: dict[str, Any],
+    *,
+    base_model_id: str,
+    dataset_manifest_sha256: str,
+    adapter_sha256: str,
+    autoscientist_run_id: str,
+) -> ComparisonReport:
+    for label, report in (("base", base_report), ("adapted", adapted_report)):
+        if report.get("split") != "test":
+            raise ValueError(f"{label} report must use the test split")
+        metrics = report.get("metrics")
+        if not isinstance(metrics, dict):
+            raise ValueError(f"{label} report is missing metrics")
+        if metrics.get("example_count") != 640:
+            raise ValueError(f"{label} report must contain exactly 640 examples")
+        missing = [name for name in REQUIRED_METRICS if name not in metrics]
+        if missing:
+            raise ValueError(f"{label} report is missing metrics: {missing}")
+
+    for name, value in (
+        ("base_model_id", base_model_id),
+        ("dataset_manifest_sha256", dataset_manifest_sha256),
+        ("adapter_sha256", adapter_sha256),
+        ("autoscientist_run_id", autoscientist_run_id),
+    ):
+        if not value.strip():
+            raise ValueError(f"{name} is required")
+
+    base_metrics = base_report["metrics"]
+    adapted_metrics = adapted_report["metrics"]
+    if adapted_metrics["composite_score"] <= base_metrics["composite_score"]:
+        raise ValueError("AutoScientist adapter does not improve held-out composite score")
+    if adapted_metrics["json_validity"] < 0.95:
+        raise ValueError("AutoScientist adapter JSON validity is below 95%")
+    improvement = {
+        name: float(adapted_metrics[name]) - float(base_metrics[name])
+        for name in REQUIRED_METRICS
+    }
+    return ComparisonReport(
+        value={
+            "schema_version": "1.0",
+            "evaluation_split": "test",
+            "scenario_family": "crossing_navigation",
+            "example_count": 640,
+            "metrics": {
+                "base": {name: float(base_metrics[name]) for name in REQUIRED_METRICS},
+                "adapted": {
+                    name: float(adapted_metrics[name]) for name in REQUIRED_METRICS
+                },
+                "improvement": improvement,
+            },
+            "evidence": {
+                "base_model_id": base_model_id,
+                "dataset_manifest_sha256": dataset_manifest_sha256,
+                "adapter_sha256": adapter_sha256,
+                "autoscientist_run_id": autoscientist_run_id,
+            },
+            "submission_thresholds": {
+                "positive_composite_improvement": True,
+                "json_validity_at_least_0_95": True,
+                "same_heldout_example_count": True,
+            },
+        }
+    )
