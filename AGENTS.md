@@ -50,6 +50,9 @@ Torch/Stable-Baselines requirements and is not authoritative.
 - `scripts/autoscientist_workflow.py`: staged import, estimate, adapt, train, status, and checkpoint
   download workflow.
 - `docs/autoscientist_runbook.md`: official API references and safe execution sequence.
+- `docs/release_runbook.md`: Hugging Face/Kaggle staging, credentials, publication, and audit.
+- `release/`: committed dataset/model cards; generated data and weights remain under ignored
+  `artifacts/release/`.
 - `tests/`: deterministic, leakage, and verifier regression tests.
 
 ## Context Log
@@ -118,3 +121,17 @@ Torch/Stable-Baselines requirements and is not authoritative.
   `python -m pytest -q` -> 20 passed; `python -m ruff check .` -> passed; `pip check` -> no broken
   requirements. SDK import and signatures were checked against `adaption==0.6.2`; offline workflow
   plan generation passed.
+
+### 2026-07-30 Public Release Tooling
+
+- Added a complete Hugging Face dataset card and post-training model-card template.
+- Added release staging that rechecks source hashes before copying the dataset, license, card, and
+  manifests into the ignored publication bundle.
+- Added environment-only native publishers for Hugging Face datasets/models and Kaggle
+  datasets/models, plus a model-bundle audit that blocks missing weights or unresolved card fields.
+- Installed and inspected `huggingface-hub==1.26.0` and `kagglehub==1.0.2`; native upload signatures
+  match the implementation.
+- Prepared the local dataset publication bundle with all 3,840 cases. Its release manifest contains
+  exact hashes for the six data files, dataset card, source manifest, and license.
+- Validation: `python -m pytest -q` -> 25 passed; `python -m ruff check .` -> passed; `pip check` ->
+  no broken requirements.

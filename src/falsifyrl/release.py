@@ -1,0 +1,231 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import shutil
+from pathlib import Path
+from typing import Any
+
+DATASET_FILES = (
+    "train.csv",
+    "train.jsonl",
+    "validation.csv",
+    "validation.jsonl",
+    "test.csv",
+    "test.jsonl",
+    "manifest.json",
+)
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def prepare_dataset_bundle(
+    dataset_dir: str | Path,
+    bundle_dir: str | Path,
+    *,
+    card_path: str | Path = "release/dataset/README.md",
+    license_path: str | Path = "LICENSE",
+) -> dict[str, Any]:
+    source = Path(dataset_dir)
+    destination = Path(bundle_dir)
+    source_manifest = json.loads((source / "manifest.json").read_text(encoding="utf-8"))
+
+    for filename, metadata in source_manifest["files"].items():
+        actual = _sha256(source / filename)
+        if actual != metadata["sha256"]:
+            raise ValueError(
+                f"source hash mismatch for {filename}: {actual} != {metadata['sha256']}"
+            )
+
+    destination.mkdir(parents=True, exist_ok=True)
+    for filename in DATASET_FILES:
+        source_path = source / filename
+        if not source_path.is_file():
+            raise FileNotFoundError(source_path)
+        shutil.copy2(source_path, destination / filename)
+    shutil.copy2(card_path, destination / "README.md")
+    shutil.copy2(license_path, destination / "LICENSE")
+
+    bundle_files = {
+        path.name: {"bytes": path.stat().st_size, "sha256": _sha256(path)}
+        for path in sorted(destination.iterdir())
+        if path.is_file()
+    }
+    release_manifest = {
+        "artifact": "falsifyrl-seed-v1",
+        "visibility": "public",
+        "dataset_version": source_manifest["dataset_version"],
+        "case_count": source_manifest["validation"]["case_count"],
+        "split_counts": source_manifest["validation"]["split_counts"],
+        "files": bundle_files,
+    }
+    (destination / "release-manifest.json").write_text(
+        json.dumps(release_manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return release_manifest
+
+
+def require_huggingface_token() -> str:
+    token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+    if not token:
+        raise RuntimeError("HF_TOKEN is required in the process environment")
+    return token
+
+
+def require_kaggle_token() -> str:
+    token = os.environ.get("KAGGLE_API_TOKEN")
+    if not token:
+        raise RuntimeError("KAGGLE_API_TOKEN is required in the process environment")
+    return token
+
+
+def publish_huggingface_dataset(
+    bundle_dir: str | Path,
+    *,
+    owner: str,
+    slug: str = "falsifyrl-seed",
+) -> str:
+    try:
+        from huggingface_hub import HfApi
+    except ImportError as error:
+        raise RuntimeError(
+            "Install release dependencies with `pip install -e .[release]`."
+        ) from error
+    repo_id = f"{owner}/{slug}"
+    api = HfApi(token=require_huggingface_token())
+    api.create_repo(repo_id=repo_id, repo_type="dataset", private=False, exist_ok=True)
+    api.upload_folder(
+        folder_path=str(bundle_dir),
+        repo_id=repo_id,
+        repo_type="dataset",
+        commit_message="Publish verified FalsifyRL seed dataset v1",
+    )
+    return f"https://huggingface.co/datasets/{repo_id}"
+
+
+def publish_kaggle_dataset(
+    bundle_dir: str | Path,
+    *,
+    owner: str,
+    slug: str = "falsifyrl-seed",
+) -> str:
+    try:
+        import kagglehub
+    except ImportError as error:
+        raise RuntimeError(
+            "Install release dependencies with `pip install -e .[release]`."
+        ) from error
+    require_kaggle_token()
+    handle = f"{owner}/{slug}"
+    kagglehub.dataset_upload(
+        handle,
+        str(bundle_dir),
+        version_notes="Verified FalsifyRL reward-matched seed dataset v1",
+    )
+    return f"https://www.kaggle.com/datasets/{handle}"
+
+
+def audit_model_bundle(bundle_dir: str | Path) -> None:
+    bundle = Path(bundle_dir)
+    required = {"README.md", "adapter_config.json", "adapter_model.safetensors"}
+    missing = sorted(filename for filename in required if not (bundle / filename).is_file())
+    if missing:
+        raise ValueError(f"model bundle is missing required files: {missing}")
+    card = (bundle / "README.md").read_text(encoding="utf-8")
+    unresolved = sorted(
+        marker
+        for marker in (
+            "BASE_MODEL_ID",
+            "DATASET_REPO_ID",
+            "AUTOSCIENTIST_RUN_ID",
+            "BEST_WIN_RATE",
+            "EVALUATION_REPORT_URL",
+        )
+        if marker in card
+    )
+    if unresolved:
+        raise ValueError(f"model card has unresolved markers: {unresolved}")
+
+
+def publish_huggingface_model(
+    bundle_dir: str | Path,
+    *,
+    owner: str,
+    slug: str = "falsifyrl-autoscientist",
+) -> str:
+    try:
+        from huggingface_hub import HfApi
+    except ImportError as error:
+        raise RuntimeError(
+            "Install release dependencies with `pip install -e .[release]`."
+        ) from error
+    audit_model_bundle(bundle_dir)
+    repo_id = f"{owner}/{slug}"
+    api = HfApi(token=require_huggingface_token())
+    api.create_repo(repo_id=repo_id, repo_type="model", private=False, exist_ok=True)
+    api.upload_folder(
+        folder_path=str(bundle_dir),
+        repo_id=repo_id,
+        repo_type="model",
+        commit_message="Publish best FalsifyRL AutoScientist checkpoint",
+    )
+    return f"https://huggingface.co/{repo_id}"
+
+
+def publish_kaggle_model(
+    bundle_dir: str | Path,
+    *,
+    owner: str,
+    slug: str = "falsifyrl-autoscientist",
+    variation: str = "lora",
+) -> str:
+    try:
+        import kagglehub
+    except ImportError as error:
+        raise RuntimeError(
+            "Install release dependencies with `pip install -e .[release]`."
+        ) from error
+    require_kaggle_token()
+    audit_model_bundle(bundle_dir)
+    handle = f"{owner}/{slug}/pytorch/{variation}"
+    kagglehub.model_upload(
+        handle,
+        str(bundle_dir),
+        license_name="MIT",
+        version_notes="Best FalsifyRL AutoScientist LoRA checkpoint",
+    )
+    return f"https://www.kaggle.com/models/{handle}"
+
+
+def render_model_card(
+    template_path: str | Path,
+    destination: str | Path,
+    *,
+    base_model_id: str,
+    dataset_repo_id: str,
+    autoscientist_run_id: str,
+    best_win_rate: float,
+    evaluation_report_url: str,
+) -> Path:
+    content = Path(template_path).read_text(encoding="utf-8")
+    replacements = {
+        "BASE_MODEL_ID": base_model_id,
+        "DATASET_REPO_ID": dataset_repo_id,
+        "AUTOSCIENTIST_RUN_ID": autoscientist_run_id,
+        "BEST_WIN_RATE": f"{best_win_rate:.4f}",
+        "EVALUATION_REPORT_URL": evaluation_report_url,
+    }
+    for marker, value in replacements.items():
+        content = content.replace(marker, value)
+    output = Path(destination)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(content, encoding="utf-8")
+    return output

@@ -20,6 +20,10 @@ dev = [
 platforms = [
   "adaption>=0.6.2,<0.7",
 ]
+release = [
+  "huggingface-hub>=1.26,<2",
+  "kagglehub>=1.0,<2",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
