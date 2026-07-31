@@ -27,19 +27,17 @@ environment may later provide an external visual evaluation case.
 
 ## Local Setup
 
-The current validated interpreter is:
+The authoritative local environment is the standalone virtual environment:
 
 ```powershell
-C:\Users\Win10\anaconda3\envs\paintmerge-gtx1080\python.exe
+py -3.10 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[dev,platforms]"
+.\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe -m ruff check .
 ```
 
-The environment name is historical; FalsifyRL does not depend on PaintMerge.
-
-```powershell
-python -m pip install -e .[dev]
-python -m pytest -q
-python -m ruff check .
-```
+The historical PaintMerge Conda environment can run the code but has unrelated broken
+Torch/Stable-Baselines requirements and is not authoritative.
 
 ## Repository Map
 
@@ -49,6 +47,9 @@ python -m ruff check .
 - `src/falsifyrl/verifier.py`: independent task oracle and executable patch checks.
 - `src/falsifyrl/dataset.py`: paired-case assembly, validation, and deterministic export.
 - `scripts/generate_seed_dataset.py`: seed dataset CLI.
+- `scripts/autoscientist_workflow.py`: staged import, estimate, adapt, train, status, and checkpoint
+  download workflow.
+- `docs/autoscientist_runbook.md`: official API references and safe execution sequence.
 - `tests/`: deterministic, leakage, and verifier regression tests.
 
 ## Context Log
@@ -99,3 +100,21 @@ python -m ruff check .
   verdict accuracy and 0.333 verdict macro-F1; the reward-only baseline composite is 0.485. The
   executable oracle scores 1.0.
 - Validation: `python -m pytest -q` -> 16 passed; `python -m ruff check .` -> passed.
+
+### 2026-07-30 AutoScientist Adapter
+
+- Added a staged workflow for public Hugging Face/Kaggle or local ingestion, free cost estimation,
+  Adaptive Data execution, AutoScientist training, status refresh, and best-checkpoint download.
+- Workflow state contains only plans, public platform IDs, estimates, statuses, model IDs, and win
+  rates. `ADAPTION_API_KEY` is environment-only.
+- Installed and inspected `adaption==0.6.2`. Its live signatures support the implemented dataset
+  import/run and AutoScientist methods. Unlike wording in the guide, the SDK does not accept
+  top-level `training_type`; LoRA remains the platform default.
+- The Adaption publish endpoint is currently documented as unimplemented, so Hugging Face and
+  Kaggle publishing must use their native clients before Adaption import.
+- This machine currently has no Adaption, Hugging Face, or Kaggle credential environment variables;
+  `hf auth whoami` reports not logged in.
+- Created `.venv`, installed the project with `.[dev,platforms]`, and validated:
+  `python -m pytest -q` -> 20 passed; `python -m ruff check .` -> passed; `pip check` -> no broken
+  requirements. SDK import and signatures were checked against `adaption==0.6.2`; offline workflow
+  plan generation passed.

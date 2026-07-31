@@ -25,15 +25,20 @@ evaluation, AutoScientist training, and public Hugging Face/Kaggle release tooli
 milestones.
 
 See [docs/hackathon_plan.md](docs/hackathon_plan.md) for the complete submission contract.
+The credential-safe platform sequence is in
+[docs/autoscientist_runbook.md](docs/autoscientist_runbook.md).
 
 ## Development
 
 ```powershell
-python -m pip install -e .[dev]
-python -m pytest -q
-python -m ruff check .
-python scripts/generate_seed_dataset.py
-python scripts/evaluate_baselines.py --baseline reward-only --split test
+py -3.10 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[dev,platforms]"
+.\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe -m ruff check .
+.\.venv\Scripts\python.exe scripts/generate_seed_dataset.py
+.\.venv\Scripts\python.exe scripts/evaluate_baselines.py --baseline reward-only --split test
+.\.venv\Scripts\python.exe scripts/autoscientist_workflow.py plan --source huggingface `
+  --source-url https://huggingface.co/datasets/OWNER/falsifyrl-seed
 ```
 
 The held-out reward-only baseline gets 50% verdict accuracy and 0.333 verdict macro-F1 because each

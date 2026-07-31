@@ -1,0 +1,121 @@
+from __future__ import annotations
+
+from types import SimpleNamespace
+
+import pytest
+
+from falsifyrl.autoscientist import (
+    AutoScientistPlan,
+    WorkflowState,
+    ingest_and_estimate,
+    require_api_key,
+    run_autoscientist,
+)
+
+
+class FakeDatasets:
+    def __init__(self) -> None:
+        self.run_calls: list[dict] = []
+
+    def create_from_huggingface(self, **kwargs):
+        assert kwargs["files"] == ["train.csv"]
+        return SimpleNamespace(dataset_id="dataset-123")
+
+    def wait_for_completion(self, dataset_id, timeout):
+        assert dataset_id == "dataset-123"
+        assert timeout > 0
+        return SimpleNamespace(status="succeeded")
+
+    def run(self, dataset_id, **kwargs):
+        assert dataset_id == "dataset-123"
+        self.run_calls.append(kwargs)
+        return SimpleNamespace(
+            estimated_credits_consumed=42,
+            estimated_minutes=7,
+        )
+
+
+class FakeAutoScientist:
+    def __init__(self) -> None:
+        self.create_arguments = None
+
+    def create(self, **kwargs):
+        self.create_arguments = kwargs
+        return SimpleNamespace(id="experiment-456")
+
+    def wait_for_completion(self, experiment_id, timeout):
+        assert experiment_id == "experiment-456"
+        assert timeout > 0
+        return SimpleNamespace(
+            status="succeeded",
+            best_win_rate=0.81,
+            model="small-model",
+            download_available=True,
+        )
+
+
+class FakeClient:
+    def __init__(self) -> None:
+        self.datasets = FakeDatasets()
+        self.autoscientist = FakeAutoScientist()
+
+
+def _plan() -> AutoScientistPlan:
+    return AutoScientistPlan(
+        source="huggingface",
+        source_url="https://huggingface.co/datasets/example/falsifyrl",
+    )
+
+
+def test_plan_rejects_missing_source_location() -> None:
+    with pytest.raises(ValueError, match="requires source_url"):
+        AutoScientistPlan(source="huggingface")
+
+
+def test_api_key_is_environment_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ADAPTION_API_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="process environment"):
+        require_api_key()
+
+    monkeypatch.setenv("ADAPTION_API_KEY", "test-secret")
+    assert require_api_key() == "test-secret"
+
+
+def test_ingestion_estimate_preserves_exact_column_mapping() -> None:
+    client = FakeClient()
+    state = ingest_and_estimate(client, WorkflowState(plan=_plan()))
+
+    assert state.dataset_id == "dataset-123"
+    assert state.estimated_credits == 42
+    assert state.estimated_minutes == 7
+    estimate_call = client.datasets.run_calls[0]
+    assert estimate_call["column_mapping"] == {
+        "prompt": "prompt",
+        "completion": "completion",
+    }
+    assert estimate_call["recipe_specification"]["recipes"] == {
+        "deduplication": False,
+        "prompt_rephrase": False,
+        "reasoning_traces": False,
+    }
+    assert estimate_call["estimate"] is True
+
+
+def test_training_uses_idempotency_and_records_submission_ids() -> None:
+    client = FakeClient()
+    state = WorkflowState(
+        plan=_plan(),
+        dataset_id="dataset-123",
+        dataset_status="succeeded",
+    )
+
+    result = run_autoscientist(client, state)
+
+    assert result.autoscientist_run_id == "experiment-456"
+    assert result.best_win_rate == 0.81
+    assert result.download_available is True
+    arguments = client.autoscientist.create_arguments
+    assert arguments["data_format"] == "instruction"
+    assert arguments["idempotency_key"] == "falsifyrl-v1-dataset-123"
+    assert "training_type" not in arguments
+    assert "api_key" not in result.to_dict()
