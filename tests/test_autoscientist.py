@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+import io
 from types import SimpleNamespace
 
 import pytest
@@ -7,6 +9,7 @@ import pytest
 from falsifyrl.autoscientist import (
     AutoScientistPlan,
     WorkflowState,
+    export_and_audit_adapted_dataset,
     ingest_and_estimate,
     require_api_key,
     run_autoscientist,
@@ -33,6 +36,11 @@ class FakeDatasets:
             estimated_credits_consumed=42,
             estimated_minutes=7,
         )
+
+    def download(self, dataset_id, file_format):
+        assert dataset_id == "dataset-123"
+        assert file_format == "csv"
+        return "https://example.test/adapted.csv"
 
 
 class FakeAutoScientist:
@@ -64,6 +72,7 @@ def _plan() -> AutoScientistPlan:
     return AutoScientistPlan(
         source="huggingface",
         source_url="https://huggingface.co/datasets/example/falsifyrl",
+        expected_training_rows=1,
     )
 
 
@@ -107,6 +116,10 @@ def test_training_uses_idempotency_and_records_submission_ids() -> None:
         plan=_plan(),
         dataset_id="dataset-123",
         dataset_status="succeeded",
+        adapted_export_sha256="a" * 64,
+        adapted_audit_sha256="b" * 64,
+        adapted_row_count=1,
+        adapted_schema_valid=True,
     )
 
     result = run_autoscientist(client, state)
@@ -119,3 +132,68 @@ def test_training_uses_idempotency_and_records_submission_ids() -> None:
     assert arguments["idempotency_key"] == "falsifyrl-v1-dataset-123"
     assert "training_type" not in arguments
     assert "api_key" not in result.to_dict()
+
+
+def test_training_rejects_unreviewed_adapted_data() -> None:
+    state = WorkflowState(
+        plan=_plan(),
+        dataset_id="dataset-123",
+        dataset_status="succeeded",
+    )
+    with pytest.raises(ValueError, match="exported and audited"):
+        run_autoscientist(FakeClient(), state)
+
+
+def test_export_audits_exact_adapted_dataset(tmp_path) -> None:
+    source = tmp_path / "source.csv"
+    diagnosis = (
+        '{"confidence":0.99,"counterexample_config":{"behavior_profile":"safe"},'
+        '"evidence_steps":[],"expected_effect":"No patch needed.",'
+        '"failure_type":"none","responsible_agents":[],"reward_patch":null,'
+        '"verdict":"aligned"}'
+    )
+    with source.open("w", encoding="utf-8", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=("prompt", "completion"))
+        writer.writeheader()
+        writer.writerow({"prompt": "exact prompt", "completion": diagnosis})
+
+    adapted_buffer = io.StringIO(newline="")
+    writer = csv.DictWriter(
+        adapted_buffer,
+        fieldnames=(
+            "original_prompt",
+            "original_completion",
+            "enhanced_prompt",
+            "enhanced_completion",
+        ),
+    )
+    writer.writeheader()
+    writer.writerow(
+        {
+            "original_prompt": "exact prompt",
+            "original_completion": diagnosis,
+            "enhanced_prompt": "exact prompt",
+            "enhanced_completion": diagnosis.replace("0.99", "0.98"),
+        }
+    )
+
+    state = WorkflowState(
+        plan=_plan(),
+        dataset_id="dataset-123",
+        dataset_status="succeeded",
+        adaptation_run_id="adaptation-789",
+    )
+    result = export_and_audit_adapted_dataset(
+        FakeClient(),
+        state,
+        tmp_path / "adapted.csv",
+        source,
+        fetcher=lambda url: adapted_buffer.getvalue().encode("utf-8"),
+    )
+
+    assert result.adapted_schema_valid is True
+    assert result.adapted_row_count == 1
+    assert result.adapted_prompt_column == "enhanced_prompt"
+    assert result.adapted_completion_column == "enhanced_completion"
+    assert result.adapted_export_sha256
+    assert result.adapted_audit_sha256

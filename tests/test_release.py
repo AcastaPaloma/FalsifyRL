@@ -9,6 +9,7 @@ import pytest
 from falsifyrl.release import (
     DATASET_FILES,
     audit_model_bundle,
+    prepare_adapted_dataset_bundle,
     prepare_dataset_bundle,
     render_model_card,
     require_huggingface_token,
@@ -71,6 +72,60 @@ def test_release_bundle_rejects_tampering(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="source hash mismatch"):
         prepare_dataset_bundle(source, tmp_path / "bundle")
+
+
+def test_adapted_release_requires_exact_audited_training_file(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    bundle = tmp_path / "bundle"
+    card = tmp_path / "card.md"
+    license_file = tmp_path / "LICENSE"
+    adapted = tmp_path / "adapted.csv"
+    audit_path = tmp_path / "adapted.audit.json"
+    _fake_dataset(source)
+    manifest_path = source / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["validation"]["split_counts"]["train"] = 1
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    adapted.write_text("enhanced_prompt,enhanced_completion\np,c\n", encoding="utf-8")
+    audit = {
+        "dataset_variant": "adapted",
+        "row_count": 1,
+        "all_source_prompts_matched": True,
+        "all_completions_strict_json": True,
+        "all_diagnosis_invariants_preserved": True,
+        "source_sha256": _sha256(source / "train.csv"),
+        "adapted_sha256": _sha256(adapted),
+        "dataset_id": "dataset-123",
+        "adaptation_run_id": "run-456",
+    }
+    audit_path.write_text(json.dumps(audit), encoding="utf-8")
+    card.write_text("# Adapted\n", encoding="utf-8")
+    license_file.write_text("MIT\n", encoding="utf-8")
+
+    release_manifest = prepare_adapted_dataset_bundle(
+        source,
+        adapted,
+        audit_path,
+        bundle,
+        card_path=card,
+        license_path=license_file,
+    )
+
+    assert release_manifest["dataset_variant"] == "adapted"
+    assert release_manifest["training_file_sha256"] == _sha256(adapted)
+    assert (bundle / "train.csv").read_bytes() == adapted.read_bytes()
+    assert (bundle / "source_train.csv").read_bytes() == (source / "train.csv").read_bytes()
+
+    adapted.write_text("tampered", encoding="utf-8")
+    with pytest.raises(ValueError, match="adapted CSV hash"):
+        prepare_adapted_dataset_bundle(
+            source,
+            adapted,
+            audit_path,
+            tmp_path / "second-bundle",
+            card_path=card,
+            license_path=license_file,
+        )
 
 
 def test_release_tokens_are_environment_only(monkeypatch: pytest.MonkeyPatch) -> None:

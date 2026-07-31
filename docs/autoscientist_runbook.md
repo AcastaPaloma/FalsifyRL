@@ -51,8 +51,17 @@ Prompt rephrasing, reasoning-trace generation, and deduplication are disabled be
 reward-matched pairs and strict simulator-derived JSON labels. The blueprint asks Adaptive Data to
 preserve the evidence and output schema.
 
-Download and revalidate the adapted rows before training if Adaption introduces enhanced columns.
-AutoScientist column inference operates on the adapted schema, not the original CSV headers.
+Export and revalidate the exact adapted rows before training:
+
+```powershell
+python scripts/autoscientist_workflow.py export
+```
+
+The export gate selects `enhanced_prompt` / `enhanced_completion` when present, otherwise the
+original `prompt` / `completion` fields. It then requires all 2,560 source prompts exactly once,
+strict JSON completions, and preservation of the simulator-derived verdict, failure type,
+responsible agents, evidence, counterexample, and executable patch. It records the export and audit
+hashes in workflow state. AutoScientist training is blocked until this audit succeeds.
 
 ## 4. Train
 
@@ -78,4 +87,3 @@ python scripts/autoscientist_workflow.py download
 The download is the best iteration checkpoint, not necessarily the final iteration. Checkpoints are
 ignored by Git and later uploaded to Hugging Face Models and Kaggle Models with cards that identify
 the base model and license.
-

@@ -31,7 +31,7 @@ The authoritative local environment is the standalone virtual environment:
 
 ```powershell
 py -3.10 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[dev,platforms]"
+.\.venv\Scripts\python.exe -m pip install -e ".[dev,platforms,release,demo]"
 .\.venv\Scripts\python.exe -m pytest -q
 .\.venv\Scripts\python.exe -m ruff check .
 ```
@@ -173,3 +173,18 @@ Torch/Stable-Baselines requirements and is not authoritative.
   or repository-write token. GitHub publication remains credential-gated.
 - Validation: `python -m pytest -q` -> 35 passed; `python -m ruff check .` -> passed; generated
   notebook is valid nbformat 4 JSON.
+
+### 2026-07-31 Exact Adapted Dataset Gate
+
+- Added a mandatory post-adaptation export/audit stage. It downloads the processed CSV over HTTPS,
+  selects enhanced prompt/completion columns when present, matches every row to the 2,560 verified
+  source prompts, validates strict diagnosis JSON, and rejects changes to verdicts, failure types,
+  agents, evidence, counterexamples, or executable patches.
+- AutoScientist training now fails closed until the exact adapted export, row count, schema checks,
+  and SHA-256 audit manifest are recorded in workflow state.
+- Added a separate final adapted-dataset bundle. It publishes the exact audited training CSV,
+  original training rows for provenance, held-out validation/test data, Adaption IDs, and both
+  manifests. The initial seed/source bundle remains only the input for Adaption import.
+- The ignored `.env` now has validated Adaption, Hugging Face, and Kaggle credentials. Authenticated
+  identities are Hugging Face `KuanKuanKuan` and Kaggle `kuanyiwang`; GitHub token is still absent.
+- Validation: focused tests -> 12 passed; `python -m ruff check .` -> passed.

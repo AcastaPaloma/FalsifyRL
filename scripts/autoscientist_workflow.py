@@ -12,6 +12,7 @@ from falsifyrl.autoscientist import (
     WorkflowState,
     create_client,
     download_checkpoint,
+    export_and_audit_adapted_dataset,
     ingest_and_estimate,
     refresh_status,
     run_adaptation,
@@ -33,6 +34,7 @@ def _plan_from_args(args: argparse.Namespace) -> AutoScientistPlan:
         max_iterations=args.max_iterations,
         target_win_rate=args.target_win_rate,
         model=args.model,
+        expected_training_rows=args.expected_training_rows,
     )
 
 
@@ -54,13 +56,14 @@ def parse_args() -> argparse.Namespace:
     plan_parser.add_argument("--max-iterations", type=int, default=3)
     plan_parser.add_argument("--target-win-rate", type=float, default=0.75)
     plan_parser.add_argument("--model")
+    plan_parser.add_argument("--expected-training-rows", type=int, default=2560)
     plan_parser.add_argument(
         "--state",
         type=Path,
         default=Path("outputs/autoscientist/workflow.json"),
     )
 
-    for action in ("ingest", "adapt", "train", "status", "download"):
+    for action in ("ingest", "adapt", "export", "train", "status", "download"):
         action_parser = subparsers.add_parser(action)
         action_parser.add_argument(
             "--state",
@@ -72,6 +75,17 @@ def parse_args() -> argparse.Namespace:
                 "--checkpoint",
                 type=Path,
                 default=Path("outputs/autoscientist/best-checkpoint.tgz"),
+            )
+        elif action == "export":
+            action_parser.add_argument(
+                "--adapted-csv",
+                type=Path,
+                default=Path("outputs/autoscientist/adapted-train.csv"),
+            )
+            action_parser.add_argument(
+                "--source-train-csv",
+                type=Path,
+                default=Path("outputs/falsifyrl_seed_v1/train.csv"),
             )
     return parser.parse_args()
 
@@ -89,6 +103,13 @@ def main() -> None:
             state = ingest_and_estimate(client, state)
         elif args.action == "adapt":
             state = run_adaptation(client, state)
+        elif args.action == "export":
+            state = export_and_audit_adapted_dataset(
+                client,
+                state,
+                args.adapted_csv,
+                args.source_train_csv,
+            )
         elif args.action == "train":
             state = run_autoscientist(client, state)
         elif args.action == "status":

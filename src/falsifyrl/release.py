@@ -19,6 +19,13 @@ DATASET_FILES = (
     "manifest.json",
 )
 
+ADAPTED_DATASET_SUPPORT_FILES = (
+    "validation.csv",
+    "validation.jsonl",
+    "test.csv",
+    "test.jsonl",
+)
+
 
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
@@ -69,6 +76,83 @@ def prepare_dataset_bundle(
         "files": bundle_files,
     }
     (destination / "release-manifest.json").write_text(
+        json.dumps(release_manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return release_manifest
+
+
+def prepare_adapted_dataset_bundle(
+    seed_dataset_dir: str | Path,
+    adapted_csv: str | Path,
+    adaptation_audit: str | Path,
+    bundle_dir: str | Path,
+    *,
+    card_path: str | Path = "release/adapted_dataset/README.md",
+    license_path: str | Path = "LICENSE",
+) -> dict[str, Any]:
+    seed = Path(seed_dataset_dir)
+    adapted = Path(adapted_csv)
+    audit_path = Path(adaptation_audit)
+    destination = Path(bundle_dir)
+    seed_manifest = json.loads((seed / "manifest.json").read_text(encoding="utf-8"))
+    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+
+    for filename, metadata in seed_manifest["files"].items():
+        actual = _sha256(seed / filename)
+        if actual != metadata["sha256"]:
+            raise ValueError(
+                f"source hash mismatch for {filename}: {actual} != {metadata['sha256']}"
+            )
+    required_audit_truths = (
+        "all_source_prompts_matched",
+        "all_completions_strict_json",
+        "all_diagnosis_invariants_preserved",
+    )
+    if audit.get("dataset_variant") != "adapted" or not all(
+        audit.get(field) is True for field in required_audit_truths
+    ):
+        raise ValueError("adaptation audit does not prove an exact verified adapted dataset")
+    expected_train_rows = seed_manifest["validation"]["split_counts"]["train"]
+    if audit.get("row_count") != expected_train_rows:
+        raise ValueError("adapted row count does not match the verified training split")
+    if audit.get("source_sha256") != _sha256(seed / "train.csv"):
+        raise ValueError("adaptation audit source hash does not match seed train.csv")
+    if audit.get("adapted_sha256") != _sha256(adapted):
+        raise ValueError("adapted CSV hash does not match the adaptation audit")
+    if not audit.get("dataset_id") or not audit.get("adaptation_run_id"):
+        raise ValueError("adaptation audit is missing Adaption dataset/run identifiers")
+
+    destination.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(adapted, destination / "train.csv")
+    shutil.copy2(seed / "train.csv", destination / "source_train.csv")
+    for filename in ADAPTED_DATASET_SUPPORT_FILES:
+        shutil.copy2(seed / filename, destination / filename)
+    shutil.copy2(seed / "manifest.json", destination / "seed-manifest.json")
+    shutil.copy2(audit_path, destination / "adaptation-audit.json")
+    shutil.copy2(card_path, destination / "README.md")
+    shutil.copy2(license_path, destination / "LICENSE")
+
+    bundle_files = {
+        path.name: {"bytes": path.stat().st_size, "sha256": _sha256(path)}
+        for path in sorted(destination.iterdir())
+        if path.is_file()
+    }
+    release_manifest = {
+        "artifact": "falsifyrl-adapted-v1",
+        "visibility": "public",
+        "dataset_variant": "adapted",
+        "dataset_version": seed_manifest["dataset_version"],
+        "case_count": seed_manifest["validation"]["case_count"],
+        "split_counts": seed_manifest["validation"]["split_counts"],
+        "adaption_dataset_id": audit["dataset_id"],
+        "adaptation_run_id": audit["adaptation_run_id"],
+        "training_file": "train.csv",
+        "training_file_sha256": audit["adapted_sha256"],
+        "files": bundle_files,
+    }
+    manifest_path = destination / "release-manifest.json"
+    manifest_path.write_text(
         json.dumps(release_manifest, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
