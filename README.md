@@ -63,9 +63,13 @@ return. The held-out evaluator executes predicted patches rather than grading te
 
 - [Verified source dataset on Hugging Face](https://huggingface.co/datasets/KuanKuanKuan/falsifyrl-source)
 - [Verified source dataset on Kaggle](https://www.kaggle.com/datasets/kuanyiwang/falsifyrl-source)
+- [Audited Adaptive Data export on Hugging Face](https://huggingface.co/datasets/KuanKuanKuan/falsifyrl-adapted)
+- [Audited Adaptive Data export on Kaggle](https://www.kaggle.com/datasets/kuanyiwang/falsifyrl-adapted)
 
-The exact Adaptive Data export, AutoScientist checkpoint, interactive Space, and reproducible Kaggle
-evaluation links will be added only after their fail-closed audits pass.
+Both adapted-dataset releases expose the exact 2,408-row training export with SHA-256
+`1a68d746184ae85272c8cc513e805cf6bcf1bee6b1f3b4e16a1d4f3c12dbe099`. The AutoScientist
+checkpoint, interactive Space, and reproducible Kaggle evaluation links will be added only after
+their fail-closed audits pass.
 
 See [docs/hackathon_plan.md](docs/hackathon_plan.md) for the submission contract and
 [docs/autoscientist_runbook.md](docs/autoscientist_runbook.md) for the credential-safe platform
