@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from falsifyrl.autoscientist import AutoScientistPlan, WorkflowState
 from falsifyrl.release import (
     DATASET_FILES,
     audit_model_bundle,
@@ -14,6 +15,10 @@ from falsifyrl.release import (
     render_model_card,
     require_huggingface_token,
     require_kaggle_token,
+)
+from scripts.continue_dataset_release import (
+    await_audited_export,
+    update_private_manifest,
 )
 
 
@@ -174,3 +179,68 @@ def test_model_bundle_audit_rejects_placeholders_and_missing_weights(
     (tmp_path / "adapter_model.safetensors").write_bytes(b"weights")
     with pytest.raises(ValueError, match="unresolved markers"):
         audit_model_bundle(tmp_path)
+
+
+def test_dataset_release_waits_for_exact_audited_export(tmp_path: Path) -> None:
+    adapted = tmp_path / "adapted.csv"
+    audit = tmp_path / "adapted.audit.json"
+    adapted.write_text("prompt,completion\n", encoding="utf-8")
+    audit.write_text("{}\n", encoding="utf-8")
+    state_path = tmp_path / "workflow.json"
+    WorkflowState(
+        plan=AutoScientistPlan(
+            source="file",
+            local_file="train.jsonl",
+            expected_training_rows=1,
+        ),
+        dataset_id="dataset-123",
+        dataset_status="succeeded",
+        adaptation_run_id="run-456",
+        adapted_export_path=str(adapted),
+        adapted_export_sha256=_sha256(adapted),
+        adapted_audit_path=str(audit),
+        adapted_row_count=1,
+        adapted_schema_valid=True,
+    ).save(state_path)
+
+    result = await_audited_export(
+        state_path,
+        poll_seconds=0,
+        timeout_seconds=1,
+    )
+
+    assert result.adapted_export_sha256 == _sha256(adapted)
+
+
+def test_dataset_release_updates_only_proven_submission_fields(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "links": {"huggingface_dataset": None, "kaggle_dataset": None},
+                "dataset": {"variant": None, "sha256_manifest": None},
+                "attestations": {
+                    "dataset_public_on_both_platforms": None,
+                    "same_dataset_used_for_training": None,
+                    "at_least_18": None,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    update_private_manifest(
+        manifest_path,
+        huggingface_url="https://huggingface.co/datasets/owner/falsifyrl-adapted",
+        kaggle_url="https://www.kaggle.com/datasets/owner/falsifyrl-adapted",
+        manifest_url=(
+            "https://huggingface.co/datasets/owner/falsifyrl-adapted/"
+            "resolve/main/release-manifest.json"
+        ),
+    )
+    updated = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert updated["dataset"]["variant"] == "adapted"
+    assert updated["attestations"]["dataset_public_on_both_platforms"] is True
+    assert updated["attestations"]["same_dataset_used_for_training"] is True
+    assert updated["attestations"]["at_least_18"] is None
