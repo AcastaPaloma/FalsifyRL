@@ -24,6 +24,29 @@ def batches(values: Sequence[T], size: int) -> Iterator[Sequence[T]]:
         yield values[start : start + size]
 
 
+def completed_prefix_count(path: Path, expected_ids: Sequence[str]) -> int:
+    if not path.exists():
+        return 0
+    completed = 0
+    with path.open(encoding="utf-8") as stream:
+        for line_number, line in enumerate(stream, start=1):
+            row = json.loads(line)
+            if set(row) != {"example_id", "completion"}:
+                raise ValueError(
+                    f"resume row {line_number} must contain example_id and completion"
+                )
+            if completed >= len(expected_ids):
+                raise ValueError("resume file contains more rows than the selected split")
+            if row["example_id"] != expected_ids[completed]:
+                raise ValueError(
+                    f"resume row {line_number} is not the exact expected prefix"
+                )
+            if not isinstance(row["completion"], str):
+                raise ValueError(f"resume row {line_number} completion must be a string")
+            completed += 1
+    return completed
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate deterministic FalsifyRL base or PEFT-adapter predictions."
@@ -34,6 +57,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-examples", type=int)
     parser.add_argument("--max-new-tokens", type=int, default=256)
     parser.add_argument("--batch-size", type=int, default=1)
+    parser.add_argument("--resume", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args()
 
@@ -70,9 +94,17 @@ def main() -> None:
         cases = cases[: args.max_examples]
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    generated_count = 0
-    with args.output.open("w", encoding="utf-8") as stream:
-        for case_batch in batches(cases, args.batch_size):
+    generated_count = (
+        completed_prefix_count(
+            args.output,
+            [case.example_id for case in cases],
+        )
+        if args.resume
+        else 0
+    )
+    file_mode = "a" if args.resume and generated_count else "w"
+    with args.output.open(file_mode, encoding="utf-8") as stream:
+        for case_batch in batches(cases[generated_count:], args.batch_size):
             formatted = [
                 processor.apply_chat_template(
                     [
