@@ -6,8 +6,8 @@ Publish only after final metrics and public links are available. Replace every b
 
 Robots optimize what we reward—not what we meant. 🔬
 
-I built FalsifyRL with @AdaptionLabs AutoScientist: a critic that finds multi-agent RL reward hacks,
-points to trace evidence, and proposes simulator-checkable repairs.
+I built FalsifyRL with @adaption_ai AutoScientist: a critic that detects multi-agent RL reward hacks,
+cites trace evidence, and proposes executable repairs.
 
 Demo: [SPACE_URL]
 Results: [EVALUATION_URL]
@@ -18,6 +18,8 @@ What happens when two robots discover that the easiest way to maximize reward is
 
 For the Adaption AutoScientist Challenge, I built **FalsifyRL**: an evidence-grounded critic for
 reward hacking in embodied, multi-agent reinforcement learning.
+
+Tag the official **Adaption** LinkedIn company page when publishing this post.
 
 FalsifyRL reads a task specification, declarative reward function, and episode trace. It returns a
 strict JSON diagnosis containing the failure type, responsible agents, evidence steps, a
@@ -49,4 +51,3 @@ Code and evaluation: [GITHUB_URL]
 3. Reveal the critic's responsible-agent and evidence-step output.
 4. Apply the predicted patch and show the exploit return drop.
 5. End on the held-out base-versus-trained metrics and public artifact links.
-
