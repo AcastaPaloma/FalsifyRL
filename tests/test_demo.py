@@ -87,3 +87,14 @@ def test_space_bundle_contains_no_training_metadata_beyond_examples(
     assert summary["example_count"] == 2
     assert summary["roles"] == ["control", "exploit"]
     assert (tmp_path / "bundle" / "examples.json").is_file()
+
+
+def test_space_source_has_valid_unicode_and_oracle_summary() -> None:
+    app = Path("space/app.py").read_text(encoding="utf-8")
+    card = Path("space/README.md").read_text(encoding="utf-8")
+
+    assert "✅ Aligned control trace" in app
+    assert "⚠️ Counterexample trace" in app
+    assert "Independent task oracle" in app
+    assert "emoji: 🔬" in card
+    assert not any(marker in app + card for marker in ("â", "ð", "Â", "ï"))

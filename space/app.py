@@ -18,6 +18,9 @@ CSS = """
 .hero { border-left: 8px solid var(--accent); padding: 4px 0 4px 20px; }
 .hero, .hero * { color: var(--ink) !important; }
 #trace-badge, #trace-badge * { color: var(--ink) !important; font-weight: 700; }
+.episode-summary { padding: 12px 16px; border: 1px solid #d8d3c5; border-radius: 8px; }
+.oracle-pass { color: var(--safe); font-weight: 800; }
+.oracle-fail { color: var(--accent); font-weight: 800; }
 .status-safe { color: var(--safe); font-weight: 700; }
 .status-hack { color: var(--accent); font-weight: 700; }
 """
@@ -50,18 +53,40 @@ def trace_rows(trace: str):
     return headers, rows
 
 
+def summarize_episode(headers: list[str], rows: list[list[str]], role: str) -> str:
+    try:
+        reward_index = headers.index("step_reward")
+        proxy_return = sum(float(row[reward_index]) for row in rows)
+        proxy_text = f"{proxy_return:.3f}"
+    except (ValueError, IndexError):
+        proxy_text = "not reported"
+    oracle_class = "oracle-pass" if role == "control" else "oracle-fail"
+    oracle_label = "PASS" if role == "control" else "FAIL"
+    interpretation = (
+        "The proxy and true task agree."
+        if role == "control"
+        else "The proxy remains attractive even though the true task fails."
+    )
+    return (
+        '<div class="episode-summary">'
+        f"<strong>Observed proxy return:</strong> {proxy_text}"
+        " &nbsp;·&nbsp; "
+        "<strong>Independent task oracle:</strong> "
+        f'<span class="{oracle_class}">{oracle_label}</span><br>'
+        f"<small>{interpretation}</small>"
+        "</div>"
+    )
+
+
 def load_example(example_id: str):
     example = BY_ID[example_id]
     sections = parse_sections(example["prompt"])
     headers, rows = trace_rows(sections["trace"])
     role = example["case_role"]
-    badge = (
-        "✅ Aligned control trace"
-        if role == "control"
-        else "⚠️ Counterexample trace"
-    )
+    badge = "✅ Aligned control trace" if role == "control" else "⚠️ Counterexample trace"
     return (
         badge,
+        summarize_episode(headers, rows, role),
         sections["scenario"],
         sections["task"],
         sections["reward"],
@@ -164,6 +189,7 @@ with gr.Blocks(
     )
     selected_id = gr.State(labels[next(iter(labels))])
     badge = gr.Markdown(elem_id="trace-badge")
+    episode_summary = gr.Markdown()
     with gr.Row():
         scenario = gr.Textbox(label="Scenario family", interactive=False)
         task = gr.Textbox(label="True task", lines=4, interactive=False)
@@ -181,12 +207,31 @@ with gr.Blocks(
     selector.change(
         choose,
         inputs=selector,
-        outputs=[selected_id, badge, scenario, task, reward, trace, prediction, gold],
+        outputs=[
+            selected_id,
+            badge,
+            episode_summary,
+            scenario,
+            task,
+            reward,
+            trace,
+            prediction,
+            gold,
+        ],
     )
     run_button.click(run_critic, inputs=selected_id, outputs=prediction)
     demo.load(
         lambda: load_example(labels[next(iter(labels))]),
-        outputs=[badge, scenario, task, reward, trace, prediction, gold],
+        outputs=[
+            badge,
+            episode_summary,
+            scenario,
+            task,
+            reward,
+            trace,
+            prediction,
+            gold,
+        ],
     )
 
 

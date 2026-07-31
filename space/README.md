@@ -19,4 +19,3 @@ strict JSON diagnosis against the executable gold verifier.
 The Space requires `BASE_MODEL_ID` and `MODEL_REPO_ID` variables after the best LoRA checkpoint is
 published. Without them, it runs in transparent verifier-preview mode and never pretends that gold
 labels are model predictions.
-
