@@ -222,7 +222,12 @@ with gr.Blocks(
             gold,
         ],
     )
-    run_button.click(run_critic, inputs=selected_id, outputs=prediction)
+    run_button.click(
+        run_critic,
+        inputs=selected_id,
+        outputs=prediction,
+        api_name="run_critic",
+    )
     demo.load(
         lambda: load_example(labels[next(iter(labels))]),
         outputs=[

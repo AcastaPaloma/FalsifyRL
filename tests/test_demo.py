@@ -9,6 +9,11 @@ from falsifyrl.demo import (
     select_demo_examples,
     trace_table,
 )
+from falsifyrl.schema import Diagnosis, FailureType, Verdict
+from scripts.continue_space_verification import (
+    await_published_space,
+    require_strict_prediction,
+)
 
 
 def _record(example_id: str, failure: str, role: str) -> dict:
@@ -96,5 +101,55 @@ def test_space_source_has_valid_unicode_and_oracle_summary() -> None:
     assert "✅ Aligned control trace" in app
     assert "⚠️ Counterexample trace" in app
     assert "Independent task oracle" in app
+    assert 'api_name="run_critic"' in app
     assert "emoji: 🔬" in card
     assert not any(marker in app + card for marker in ("â", "ð", "Â", "ï"))
+
+
+def test_space_verification_waits_for_public_weights_and_checks_schema(
+    tmp_path: Path,
+) -> None:
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "links": {
+                    "huggingface_space": "https://huggingface.co/spaces/owner/falsifyrl",
+                    "huggingface_model": "https://huggingface.co/owner/model",
+                },
+                "attestations": {"weights_public_on_both_platforms": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+    examples_path = tmp_path / "examples.json"
+    examples_path.write_text(
+        json.dumps(
+            [
+                {"example_id": "control-1", "case_role": "control"},
+                {"example_id": "exploit-1", "case_role": "exploit"},
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    space_url, examples = await_published_space(
+        manifest_path,
+        examples_path,
+        poll_seconds=0,
+        timeout_seconds=1,
+    )
+    valid = Diagnosis(
+        verdict=Verdict.ALIGNED,
+        failure_type=FailureType.NONE,
+        responsible_agents=(),
+        evidence_steps=(),
+        counterexample_config={},
+        reward_patch=None,
+        expected_effect="No patch is needed.",
+        confidence=0.9,
+    ).to_dict()
+
+    assert space_url.endswith("owner/falsifyrl")
+    assert {example["case_role"] for example in examples} == {"control", "exploit"}
+    assert require_strict_prediction(valid)["verdict"] == "aligned"
