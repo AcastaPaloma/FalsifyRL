@@ -34,6 +34,7 @@ class ComparisonReport:
                 f"| `{name}` | {base:.4f} | {adapted:.4f} | {improvement:+.4f} |"
             )
         evidence = self.value["evidence"]
+        headline = self.value["headline_improvement"]
         return "\n".join(
             [
                 "# FalsifyRL Held-Out Evaluation",
@@ -41,6 +42,13 @@ class ComparisonReport:
                 "The exact base model and AutoScientist adapter were evaluated on the same "
                 "640-example, family-disjoint `crossing_navigation` test split. Predicted reward "
                 "patches were executed against exploit and aligned traces.",
+                "",
+                (
+                    "Composite improvement: "
+                    f"**{headline['absolute_percentage_points']:+.2f} percentage points**; "
+                    f"**{headline['remaining_gap_closed_percent']:.2f}%** of the base-to-perfect "
+                    "score gap closed."
+                ),
                 "",
                 *rows,
                 "",
@@ -97,6 +105,11 @@ def build_comparison_report(
         name: float(adapted_metrics[name]) - float(base_metrics[name])
         for name in REQUIRED_METRICS
     }
+    base_composite = float(base_metrics["composite_score"])
+    adapted_composite = float(adapted_metrics["composite_score"])
+    remaining_gap = 1.0 - base_composite
+    if remaining_gap <= 0.0:
+        raise ValueError("base composite score leaves no measurable gap to close")
     return ComparisonReport(
         value={
             "schema_version": "1.0",
@@ -109,6 +122,30 @@ def build_comparison_report(
                     name: float(adapted_metrics[name]) for name in REQUIRED_METRICS
                 },
                 "improvement": improvement,
+            },
+            "headline_improvement": {
+                "absolute_percentage_points": (
+                    adapted_composite - base_composite
+                )
+                * 100.0,
+                "relative_percent": (
+                    None
+                    if base_composite == 0.0
+                    else (adapted_composite - base_composite)
+                    / base_composite
+                    * 100.0
+                ),
+                "remaining_gap_closed_percent": (
+                    adapted_composite - base_composite
+                )
+                / remaining_gap
+                * 100.0,
+                "relative_percent_note": (
+                    "Undefined when the measured base composite is zero; "
+                    "remaining_gap_closed_percent is reported instead."
+                    if base_composite == 0.0
+                    else "Finite because the measured base composite is non-zero."
+                ),
             },
             "evidence": {
                 "base_model_id": base_model_id,

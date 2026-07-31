@@ -31,7 +31,31 @@ def test_comparison_report_proves_same_split_and_positive_improvement() -> None:
 
     assert report.value["submission_thresholds"]["positive_composite_improvement"]
     assert report.value["metrics"]["improvement"]["composite_score"] == pytest.approx(0.3)
+    assert report.value["headline_improvement"]["absolute_percentage_points"] == (
+        pytest.approx(30.0)
+    )
+    assert report.value["headline_improvement"]["relative_percent"] == pytest.approx(75.0)
+    assert report.value["headline_improvement"]["remaining_gap_closed_percent"] == (
+        pytest.approx(50.0)
+    )
     assert "Submission thresholds: **PASS**" in report.to_markdown()
+
+
+def test_comparison_report_handles_zero_base_without_infinite_percentage() -> None:
+    report = build_comparison_report(
+        _evaluation(0.0, 0.0),
+        _evaluation(0.8, 0.99),
+        base_model_id="Qwen/Qwen3.5-0.8B",
+        dataset_manifest_sha256="a" * 64,
+        adapter_sha256="b" * 64,
+        autoscientist_run_id="run-123",
+    )
+
+    headline = report.value["headline_improvement"]
+    assert headline["absolute_percentage_points"] == pytest.approx(80.0)
+    assert headline["relative_percent"] is None
+    assert headline["remaining_gap_closed_percent"] == pytest.approx(80.0)
+    assert "Undefined" in headline["relative_percent_note"]
 
 
 def test_comparison_report_rejects_weak_or_mismatched_evidence() -> None:
