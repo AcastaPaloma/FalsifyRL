@@ -35,6 +35,32 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def verify_anonymous_public_page(
+    url: str,
+    *,
+    expected_marker: str,
+    fetcher: Any | None = None,
+) -> None:
+    if fetcher is None:
+        try:
+            import requests
+        except ImportError as error:
+            raise RuntimeError(
+                "Install release dependencies with `pip install -e .[release]`."
+            ) from error
+        fetcher = requests.get
+    response = fetcher(url, timeout=30, allow_redirects=True)
+    final_url = str(response.url)
+    if response.status_code != 200:
+        raise RuntimeError(f"public artifact page returned HTTP {response.status_code}: {url}")
+    if "/login" in final_url.lower() or "/account/" in final_url.lower():
+        raise RuntimeError(f"public artifact page redirected to authentication: {final_url}")
+    if expected_marker.lower() not in response.text.lower():
+        raise RuntimeError(
+            f"public artifact page does not contain expected marker: {expected_marker}"
+        )
+
+
 def prepare_dataset_bundle(
     dataset_dir: str | Path,
     bundle_dir: str | Path,

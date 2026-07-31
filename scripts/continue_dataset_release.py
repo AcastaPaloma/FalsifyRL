@@ -15,6 +15,7 @@ from falsifyrl.release import (
     prepare_adapted_dataset_bundle,
     publish_huggingface_dataset,
     publish_kaggle_dataset,
+    verify_anonymous_public_page,
 )
 
 
@@ -186,6 +187,10 @@ def main() -> None:
         args.bundle_dir,
         owner=kaggle_owner,
         slug=args.slug,
+    )
+    verify_anonymous_public_page(
+        kaggle_url,
+        expected_marker=args.slug,
     )
     huggingface_repo_id = f"{huggingface_owner}/{args.slug}"
     kaggle_handle = f"{kaggle_owner}/{args.slug}"

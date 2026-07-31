@@ -17,6 +17,7 @@ from falsifyrl.release import (
     publish_huggingface_model,
     publish_huggingface_space,
     publish_kaggle_model,
+    verify_anonymous_public_page,
 )
 
 
@@ -230,6 +231,10 @@ def main() -> None:
         args.model_bundle,
         owner=kaggle_owner,
         slug=args.model_slug,
+    )
+    verify_anonymous_public_page(
+        kaggle_model_url,
+        expected_marker=args.model_slug,
     )
     huggingface_model_id = f"{huggingface_owner}/{args.model_slug}"
     kaggle_model_handle = f"{kaggle_owner}/{args.model_slug}/pytorch/lora"

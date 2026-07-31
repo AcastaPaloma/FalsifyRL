@@ -18,6 +18,7 @@ from falsifyrl.release import (
     require_kaggle_token,
     set_kaggle_dataset_public,
     set_kaggle_model_public,
+    verify_anonymous_public_page,
 )
 from scripts.continue_dataset_release import await_audited_export
 from scripts.continue_dataset_release import (
@@ -242,6 +243,43 @@ def test_kaggle_publication_explicitly_sets_dataset_and_model_visibility(
     assert captured["dataset"].settings.licenses[0].name == "MIT"
     assert captured["model"].is_private is False
     assert "is_private" in captured["model"].update_mask.paths
+
+
+def test_public_page_verification_rejects_private_or_wrong_artifact() -> None:
+    public = SimpleNamespace(
+        status_code=200,
+        url="https://www.kaggle.com/datasets/owner/falsifyrl-adapted",
+        text="<title>FalsifyRL Adapted</title>",
+    )
+    verify_anonymous_public_page(
+        public.url,
+        expected_marker="falsifyrl",
+        fetcher=lambda *args, **kwargs: public,
+    )
+
+    private = SimpleNamespace(
+        status_code=404,
+        url="https://www.kaggle.com/datasets/owner/private",
+        text="",
+    )
+    with pytest.raises(RuntimeError, match="HTTP 404"):
+        verify_anonymous_public_page(
+            private.url,
+            expected_marker="falsifyrl",
+            fetcher=lambda *args, **kwargs: private,
+        )
+
+    wrong = SimpleNamespace(
+        status_code=200,
+        url="https://www.kaggle.com/datasets/owner/other",
+        text="<title>Another dataset</title>",
+    )
+    with pytest.raises(RuntimeError, match="expected marker"):
+        verify_anonymous_public_page(
+            wrong.url,
+            expected_marker="falsifyrl",
+            fetcher=lambda *args, **kwargs: wrong,
+        )
 
 
 def test_dataset_release_waits_for_exact_audited_export(tmp_path: Path) -> None:
