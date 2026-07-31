@@ -53,6 +53,8 @@ Torch/Stable-Baselines requirements and is not authoritative.
 - `docs/release_runbook.md`: Hugging Face/Kaggle staging, credentials, publication, and audit.
 - `release/`: committed dataset/model cards; generated data and weights remain under ignored
   `artifacts/release/`.
+- `submission/`: fail-closed manifest template and social-post drafts.
+- `kaggle/`: reproducible held-out evaluation notebook and kernel metadata template.
 - `tests/`: deterministic, leakage, and verifier regression tests.
 
 ## Context Log
@@ -152,3 +154,22 @@ Torch/Stable-Baselines requirements and is not authoritative.
   history.
 - Validation: `python -m pytest -q` -> 28 passed; `python -m ruff check .` -> passed; `space/app.py`
   compiled; the staged bundle contains 16 examples across eight pairs.
+
+### 2026-07-31 Checkpoint, Kaggle, And Submission Gates
+
+- Added safe `.tgz` checkpoint extraction that rejects traversal paths, links, devices, multiple
+  adapter roots, missing PEFT config, and missing safetensor weights.
+- Model bundle preparation renders final run values into the card, includes the evaluation report
+  and license, audits required files, and records hashes.
+- Added a reproducible Kaggle notebook for the 640-example held-out family. It verifies all 320
+  matched pairs, reproduces non-learning baselines, loads the public PEFT adapter and exact base
+  model, writes predictions, and reports strict structured metrics.
+- Added a fail-closed submission manifest audit covering required public links, Adaption IDs,
+  entrant attestations, dataset identity, base-vs-trained improvement, best win rate, and JSON
+  validity. The committed template intentionally fails until real evidence is present.
+- Added the final checklist, X/LinkedIn drafts, and demo-video storyboard without fabricating
+  metrics or URLs.
+- The connected GitHub login is `AcastaPaloma`, but this machine has no GitHub CLI, SSH key, remote,
+  or repository-write token. GitHub publication remains credential-gated.
+- Validation: `python -m pytest -q` -> 35 passed; `python -m ruff check .` -> passed; generated
+  notebook is valid nbformat 4 JSON.

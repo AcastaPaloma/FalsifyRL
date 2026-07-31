@@ -1,0 +1,54 @@
+{
+  "challenge": "Adaption AutoScientist Challenge Part 2",
+  "category": "Science",
+  "submission_form_url": "https://share.hsforms.com/2xleXmJ7wSkimSzP8L55KcAuc9yb",
+  "project": {
+    "name": "FalsifyRL",
+    "tagline": "Falsify reward functions before your robots exploit them.",
+    "summary": "An AutoScientist-trained critic for evidence-grounded reward hacking diagnosis and executable repair in embodied multi-agent reinforcement learning."
+  },
+  "dataset": {
+    "case_count": 3840,
+    "pair_count": 1920,
+    "variant": null,
+    "test_family": "crossing_navigation",
+    "sha256_manifest": null
+  },
+  "identifiers": {
+    "adaption_dataset_id": null,
+    "autoscientist_run_id": null,
+    "base_model_id": null
+  },
+  "metrics": {
+    "base_model_composite": null,
+    "trained_model_composite": null,
+    "autoscientist_best_win_rate": null,
+    "trained_json_validity": null
+  },
+  "links": {
+    "github": null,
+    "huggingface_dataset": null,
+    "kaggle_dataset": null,
+    "huggingface_model": null,
+    "kaggle_model": null,
+    "huggingface_space": null,
+    "kaggle_notebook": null,
+    "evaluation_report": null,
+    "linkedin_post": null,
+    "x_post": null
+  },
+  "attestations": {
+    "accepted_into_challenge": null,
+    "age_of_majority": null,
+    "not_quebec_resident": null,
+    "participation_legal": null,
+    "one_team_only": null,
+    "dataset_public_on_both_platforms": null,
+    "same_dataset_used_for_training": null,
+    "weights_public_on_both_platforms": null,
+    "heldout_family_never_trained": true,
+    "all_patches_executable": true,
+    "no_secrets_in_public_artifacts": null
+  }
+}
+
