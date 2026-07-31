@@ -66,9 +66,9 @@ FalsifyRL is a standalone repository:
 
 ```text
 src/falsifyrl/
-scripts/generate_falsifyrl_seed.py
-scripts/evaluate_falsifyrl.py
-tests/test_falsifyrl_*.py
+scripts/generate_seed_dataset.py
+scripts/evaluate_baselines.py
+tests/
 ```
 
 FalsifyRL owns its generators, validators, benchmark splits, evaluation, and release pipeline. It
