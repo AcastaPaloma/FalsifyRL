@@ -221,7 +221,12 @@ def publish_kaggle_dataset(
 
 def audit_model_bundle(bundle_dir: str | Path) -> None:
     bundle = Path(bundle_dir)
-    required = {"README.md", "adapter_config.json", "adapter_model.safetensors"}
+    required = {
+        "LICENSE",
+        "README.md",
+        "adapter_config.json",
+        "adapter_model.safetensors",
+    }
     missing = sorted(filename for filename in required if not (bundle / filename).is_file())
     if missing:
         raise ValueError(f"model bundle is missing required files: {missing}")
@@ -285,7 +290,7 @@ def publish_kaggle_model(
     kagglehub.model_upload(
         handle,
         str(bundle_dir),
-        license_name="MIT",
+        license_name="Apache 2.0",
         version_notes="Best FalsifyRL AutoScientist LoRA checkpoint",
     )
     return f"https://www.kaggle.com/models/{handle}"
@@ -385,7 +390,7 @@ def prepare_model_bundle(
     best_win_rate: float,
     evaluation_report: str | Path,
     model_card_template: str | Path = "release/model/README.md",
-    license_path: str | Path = "LICENSE",
+    license_path: str | Path = "release/model/LICENSE",
 ) -> dict[str, Any]:
     archive = Path(checkpoint_archive)
     destination = Path(bundle_dir)

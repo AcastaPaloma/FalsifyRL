@@ -1,5 +1,5 @@
 ---
-license: other
+license: apache-2.0
 library_name: peft
 tags:
   - reinforcement-learning
@@ -51,5 +51,6 @@ This model proposes simulator-checkable reward patches; it is not an autonomous 
 system. Always run the executable verifier and perform expert review before changing a deployed
 reward function.
 
-The adapter code and FalsifyRL-generated artifacts are MIT licensed. Use of the adapter remains
+The released adapter weights are Apache-2.0 licensed to align with the selected Qwen base model.
+The FalsifyRL source code and generated dataset remain MIT licensed. Use of the adapter remains
 subject to the selected base model's license, identified in the `base_model` metadata above.

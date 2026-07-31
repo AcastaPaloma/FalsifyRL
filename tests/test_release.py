@@ -166,6 +166,7 @@ def test_model_bundle_audit_rejects_placeholders_and_missing_weights(
 ) -> None:
     (tmp_path / "README.md").write_text("BASE_MODEL_ID", encoding="utf-8")
     (tmp_path / "adapter_config.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "LICENSE").write_text("Apache-2.0", encoding="utf-8")
 
     with pytest.raises(ValueError, match="missing required files"):
         audit_model_bundle(tmp_path)
