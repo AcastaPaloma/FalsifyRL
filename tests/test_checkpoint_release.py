@@ -10,7 +10,11 @@ import pytest
 import zstandard
 
 from falsifyrl.autoscientist import AutoScientistPlan, WorkflowState
-from falsifyrl.release import extract_adapter_checkpoint, prepare_model_bundle
+from falsifyrl.release import (
+    canonicalize_adapter_base_model,
+    extract_adapter_checkpoint,
+    prepare_model_bundle,
+)
 from scripts.continue_model_evaluation import (
     _subprocess_environment,
     await_successful_training,
@@ -89,6 +93,47 @@ def test_checkpoint_can_be_extracted_for_prepublication_evaluation(
     assert (adapter_root / "adapter_model.safetensors").read_bytes() == (
         b"safe-tensor-bytes"
     )
+
+
+def test_adapter_base_model_alias_is_canonicalized_by_matching_slug(
+    tmp_path: Path,
+) -> None:
+    adapter_root = tmp_path / "adapter"
+    adapter_root.mkdir()
+    config_path = adapter_root / "adapter_config.json"
+    config_path.write_text(
+        json.dumps(
+            {"base_model_name_or_path": "togethercomputer/Qwen3.5-0.8B"}
+        ),
+        encoding="utf-8",
+    )
+
+    original = canonicalize_adapter_base_model(
+        adapter_root,
+        "Qwen/Qwen3.5-0.8B",
+    )
+
+    assert original == "togethercomputer/Qwen3.5-0.8B"
+    assert json.loads(config_path.read_text(encoding="utf-8"))[
+        "base_model_name_or_path"
+    ] == "Qwen/Qwen3.5-0.8B"
+
+
+def test_adapter_base_model_canonicalization_rejects_different_model(
+    tmp_path: Path,
+) -> None:
+    adapter_root = tmp_path / "adapter"
+    adapter_root.mkdir()
+    (adapter_root / "adapter_config.json").write_text(
+        json.dumps({"base_model_name_or_path": "internal/different-model"}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="does not match"):
+        canonicalize_adapter_base_model(
+            adapter_root,
+            "Qwen/Qwen3.5-0.8B",
+        )
 
 
 def test_zstandard_checkpoint_can_be_extracted_for_prepublication_evaluation(

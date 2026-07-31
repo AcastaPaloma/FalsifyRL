@@ -14,7 +14,10 @@ from falsifyrl.autoscientist import (
     create_client,
     download_checkpoint,
 )
-from falsifyrl.release import extract_adapter_checkpoint
+from falsifyrl.release import (
+    canonicalize_adapter_base_model,
+    extract_adapter_checkpoint,
+)
 
 
 def await_successful_training(
@@ -180,10 +183,13 @@ def main() -> None:
     else:
         checkpoint = args.checkpoint
     adapter_root = locate_or_extract_adapter(checkpoint, args.adapter_dir)
-    adapter_config = json.loads(
-        (adapter_root / "adapter_config.json").read_text(encoding="utf-8")
+    base_model_id = str(state.resolved_model or state.plan.model or "")
+    if not base_model_id:
+        raise ValueError("AutoScientist state is missing the resolved base model")
+    canonicalize_adapter_base_model(
+        adapter_root,
+        base_model_id,
     )
-    base_model_id = str(adapter_config["base_model_name_or_path"])
 
     _run(
         [

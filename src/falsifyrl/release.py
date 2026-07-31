@@ -603,6 +603,34 @@ def extract_adapter_checkpoint(
     return adapter_root
 
 
+def canonicalize_adapter_base_model(
+    adapter_root: str | Path,
+    canonical_model_id: str,
+) -> str:
+    config_path = Path(adapter_root) / "adapter_config.json"
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    original_model_id = str(config.get("base_model_name_or_path") or "")
+    if not original_model_id:
+        raise ValueError("adapter config is missing base_model_name_or_path")
+    if (
+        original_model_id.rsplit("/", 1)[-1].casefold()
+        != canonical_model_id.rsplit("/", 1)[-1].casefold()
+    ):
+        raise ValueError(
+            "checkpoint base model does not match the AutoScientist run model: "
+            f"{original_model_id!r} != {canonical_model_id!r}"
+        )
+    if original_model_id != canonical_model_id:
+        config["base_model_name_or_path"] = canonical_model_id
+        temporary = config_path.with_suffix(".json.tmp")
+        temporary.write_text(
+            json.dumps(config, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        temporary.replace(config_path)
+    return original_model_id
+
+
 def prepare_model_bundle(
     checkpoint_archive: str | Path,
     bundle_dir: str | Path,
@@ -629,6 +657,10 @@ def prepare_model_bundle(
                 shutil.copytree(source, target)
             else:
                 shutil.copy2(source, target)
+    checkpoint_base_model_id = canonicalize_adapter_base_model(
+        destination,
+        base_model_id,
+    )
 
     report_source = Path(evaluation_report)
     if not report_source.is_file():
@@ -658,6 +690,7 @@ def prepare_model_bundle(
     manifest = {
         "artifact": "falsifyrl-autoscientist",
         "base_model_id": base_model_id,
+        "checkpoint_original_base_model_id": checkpoint_base_model_id,
         "dataset_repo_id": dataset_repo_id,
         "autoscientist_run_id": autoscientist_run_id,
         "best_win_rate": best_win_rate,
