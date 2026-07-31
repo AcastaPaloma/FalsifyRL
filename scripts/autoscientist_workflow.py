@@ -100,7 +100,11 @@ def main() -> None:
         state = WorkflowState.load(args.state)
         client = create_client()
         if args.action == "ingest":
-            state = ingest_and_estimate(client, state)
+            state = ingest_and_estimate(
+                client,
+                state,
+                on_dataset_created=lambda current: current.save(args.state),
+            )
         elif args.action == "adapt":
             state = run_adaptation(client, state)
         elif args.action == "export":

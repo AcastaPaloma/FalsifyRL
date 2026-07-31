@@ -30,16 +30,22 @@ is left unset so the platform can choose based on dataset size.
 
 ## 2. Ingest and estimate
 
-After the public dataset exists:
+After the public dataset exists, use the locally hash-matched JSONL copy for ingestion. Adaption's
+Hugging Face CSV importer counted multiline prompt rows incorrectly during the live run (2,595
+instead of 2,560); the JSONL upload preserves the same verified prompt/completion records and
+imports exactly 2,560 rows.
 
 ```powershell
-$env:ADAPTION_API_KEY = "..."
+python scripts/autoscientist_workflow.py plan `
+  --source file `
+  --local-file outputs/falsifyrl_seed_v1/train.jsonl
 python scripts/autoscientist_workflow.py ingest
 ```
 
-This imports `train.csv`, waits for ingestion, and calls `datasets.run(..., estimate=True)`. It does
-not launch a paid adaptation. Inspect `estimated_credits` and `estimated_minutes` in
-`outputs/autoscientist/workflow.json`.
+The workflow treats Adaption's `awaiting_input` status as a completed ingestion ready for column
+mapping, persists the dataset ID immediately, requires exactly 2,560 rows, and calls
+`datasets.run(..., estimate=True)`. It does not launch a paid adaptation. Inspect
+`estimated_credits` and `estimated_minutes` in `outputs/autoscientist/workflow.json`.
 
 ## 3. Adapt the dataset
 

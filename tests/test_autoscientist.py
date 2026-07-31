@@ -24,10 +24,9 @@ class FakeDatasets:
         assert kwargs["files"] == ["train.csv"]
         return SimpleNamespace(dataset_id="dataset-123")
 
-    def wait_for_completion(self, dataset_id, timeout):
+    def get(self, dataset_id):
         assert dataset_id == "dataset-123"
-        assert timeout > 0
-        return SimpleNamespace(status="succeeded")
+        return SimpleNamespace(status="awaiting_input", row_count=1)
 
     def run(self, dataset_id, **kwargs):
         assert dataset_id == "dataset-123"

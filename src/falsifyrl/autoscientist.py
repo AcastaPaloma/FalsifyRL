@@ -4,6 +4,7 @@ import csv
 import hashlib
 import json
 import os
+import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -331,6 +332,7 @@ def ingest_and_estimate(
     state: WorkflowState,
     *,
     ingestion_timeout: float = 3600,
+    on_dataset_created: Callable[[WorkflowState], None] | None = None,
 ) -> WorkflowState:
     plan = state.plan
     if state.dataset_id is None:
@@ -350,14 +352,31 @@ def ingest_and_estimate(
                 name="falsifyrl-seed-v1",
             )
         state.dataset_id = str(_value(created, "dataset_id"))
+        if on_dataset_created is not None:
+            on_dataset_created(state)
 
-    ingested = client.datasets.wait_for_completion(
-        state.dataset_id,
-        timeout=ingestion_timeout,
-    )
+    deadline = time.monotonic() + ingestion_timeout
+    while True:
+        ingested = client.datasets.get(state.dataset_id)
+        status = str(_value(ingested, "status"))
+        if status in {"awaiting_input", "ready", "succeeded"}:
+            break
+        if status == "failed":
+            raise RuntimeError("dataset ingestion failed")
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"dataset ingestion timed out with status {status}")
+        time.sleep(2)
+
     state.dataset_status = str(_value(ingested, "status"))
-    if state.dataset_status not in {"succeeded", "ready"}:
+    if state.dataset_status not in {"awaiting_input", "succeeded", "ready"}:
         raise RuntimeError(f"dataset ingestion ended with status {state.dataset_status}")
+    row_count = _value(ingested, "row_count")
+    if row_count is None:
+        raise RuntimeError("ingested dataset does not report a row count")
+    if int(row_count) != plan.expected_training_rows:
+        raise ValueError(
+            f"ingested row count {row_count} != expected {plan.expected_training_rows}"
+        )
 
     estimate = client.datasets.run(
         state.dataset_id,
