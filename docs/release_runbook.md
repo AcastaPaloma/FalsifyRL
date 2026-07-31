@@ -107,3 +107,18 @@ Publish only after the model repository exists:
 The publisher uploads 16 examples representing eight reward-matched control/exploit pairs and sets
 the public Space variables needed for lazy model loading. Verify both a control and exploit
 prediction after the Space finishes building.
+
+## Publish the held-out Kaggle notebook
+
+After the adapted dataset and model exist on Kaggle, stage the notebook with both resources
+declared as immutable inputs:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/prepare_kaggle_notebook.py --model-version 1
+.\outputs\kaggle-cli-venv\Scripts\kaggle.exe kernels push `
+  -p artifacts/release/kaggle-notebook --accelerator NvidiaTeslaP100 --timeout 7200
+```
+
+If the model is not version 1, pass its actual public version. Do not remove `model_sources` or
+substitute the source dataset: the notebook must run against the exact `falsifyrl-adapted` release
+and exact `falsifyrl-autoscientist/pytorch/lora/<version>` adapter.

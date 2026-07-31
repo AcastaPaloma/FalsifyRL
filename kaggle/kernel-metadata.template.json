@@ -8,9 +8,11 @@
   "enable_gpu": true,
   "enable_internet": true,
   "dataset_sources": [
-    "OWNER/falsifyrl-seed"
+    "OWNER/falsifyrl-adapted"
   ],
   "competition_sources": [],
-  "kernel_sources": []
+  "kernel_sources": [],
+  "model_sources": [
+    "OWNER/falsifyrl-autoscientist/pytorch/lora/1"
+  ]
 }
-

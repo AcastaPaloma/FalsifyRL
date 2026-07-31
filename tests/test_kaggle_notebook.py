@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from scripts.build_kaggle_notebook import notebook
+from scripts.prepare_kaggle_notebook import prepare_kaggle_notebook
 
 
 def test_kaggle_notebook_contains_reproducibility_contract() -> None:
@@ -24,3 +27,23 @@ def test_kaggle_notebook_contains_reproducibility_contract() -> None:
     assert '"adapted_metrics": adapted_metrics' in rendered
     assert '"improvement"' in rendered
     assert "executable-patch metric" in rendered
+
+
+def test_kaggle_release_declares_exact_adapted_dataset_and_model(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "release"
+    metadata = prepare_kaggle_notebook(
+        owner="owner",
+        notebook_path=Path("kaggle/falsifyrl_evaluation.ipynb"),
+        metadata_template=Path("kaggle/kernel-metadata.template.json"),
+        output_dir=output,
+        model_version=3,
+    )
+
+    assert metadata["dataset_sources"] == ["owner/falsifyrl-adapted"]
+    assert metadata["model_sources"] == [
+        "owner/falsifyrl-autoscientist/pytorch/lora/3"
+    ]
+    assert (output / "falsifyrl_evaluation.ipynb").is_file()
+    assert (output / "kernel-metadata.json").is_file()
