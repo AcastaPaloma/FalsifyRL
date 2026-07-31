@@ -461,6 +461,8 @@ def run_autoscientist(
         or state.adapted_row_count != state.plan.expected_training_rows
         or not state.adapted_export_sha256
         or not state.adapted_audit_sha256
+        or not state.adapted_prompt_column
+        or not state.adapted_completion_column
     ):
         raise ValueError(
             "an exported and audited exact adapted dataset is required before training"
@@ -470,6 +472,10 @@ def run_autoscientist(
         "max_iterations": state.plan.max_iterations,
         "target_win_rate": state.plan.target_win_rate,
         "data_format": "instruction",
+        "column_mapping": {
+            "prompt": state.adapted_prompt_column,
+            "completion": state.adapted_completion_column,
+        },
         "idempotency_key": f"falsifyrl-v1-{state.dataset_id}",
     }
     if state.plan.model:

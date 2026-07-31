@@ -131,6 +131,8 @@ def test_training_uses_idempotency_and_records_submission_ids() -> None:
         adapted_export_sha256="a" * 64,
         adapted_audit_sha256="b" * 64,
         adapted_row_count=1,
+        adapted_prompt_column="enhanced_prompt",
+        adapted_completion_column="enhanced_completion",
         adapted_schema_valid=True,
     )
 
@@ -147,6 +149,10 @@ def test_training_uses_idempotency_and_records_submission_ids() -> None:
     assert snapshots[0]["autoscientist_run_id"] == "experiment-456"
     arguments = client.autoscientist.create_arguments
     assert arguments["data_format"] == "instruction"
+    assert arguments["column_mapping"] == {
+        "prompt": "enhanced_prompt",
+        "completion": "enhanced_completion",
+    }
     assert arguments["idempotency_key"] == "falsifyrl-v1-dataset-123"
     assert "training_type" not in arguments
     assert "api_key" not in result.to_dict()
