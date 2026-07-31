@@ -173,8 +173,7 @@ base_model = AutoModelForCausalLM.from_pretrained(
     torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
     device_map="auto",
 )
-model = PeftModel.from_pretrained(base_model, ADAPTER_DIR)
-model.eval()
+base_model.eval()
 """
         ),
         _code(
@@ -183,7 +182,7 @@ def extract_json(text):
     start, end = text.find("{"), text.rfind("}")
     return text[start:end + 1] if start >= 0 and end >= start else text
 
-def predict(prompt):
+def predict(model, prompt):
     if tokenizer.chat_template:
         formatted = tokenizer.apply_chat_template(
             [{"role": "user", "content": prompt}],
@@ -207,28 +206,63 @@ def predict(prompt):
     return extract_json(generated)
 
 MAX_EXAMPLES = int(os.environ.get("FALSIFYRL_MAX_EXAMPLES", len(rows)))
-model_predictions = [predict(row["prompt"]) for row in rows[:MAX_EXAMPLES]]
-model_metrics = compact_metrics(model_predictions)
-model_metrics
+base_predictions = [
+    predict(base_model, row["prompt"]) for row in rows[:MAX_EXAMPLES]
+]
+base_metrics = compact_metrics(base_predictions)
+base_metrics
 """
         ),
         _code(
             """
-prediction_path = Path("/kaggle/working/falsifyrl-test-predictions.jsonl")
-with prediction_path.open("w") as stream:
-    for row, completion in zip(
-        rows[:MAX_EXAMPLES], model_predictions, strict=True
-    ):
-        stream.write(json.dumps({
-            "example_id": row["example_id"],
-            "completion": completion,
-        }) + "\\n")
+model = PeftModel.from_pretrained(base_model, ADAPTER_DIR)
+model.eval()
+adapted_predictions = [
+    predict(model, row["prompt"]) for row in rows[:MAX_EXAMPLES]
+]
+adapted_metrics = compact_metrics(adapted_predictions)
+{
+    "base": base_metrics,
+    "adapted": adapted_metrics,
+    "verdict_macro_f1_improvement": (
+        adapted_metrics["verdict_macro_f1"] - base_metrics["verdict_macro_f1"]
+    ),
+}
+"""
+        ),
+        _code(
+            """
+def save_predictions(path, predictions):
+    with path.open("w") as stream:
+        for row, completion in zip(
+            rows[:MAX_EXAMPLES], predictions, strict=True
+        ):
+            stream.write(json.dumps({
+                "example_id": row["example_id"],
+                "completion": completion,
+            }) + "\\n")
+
+base_prediction_path = Path(
+    "/kaggle/working/falsifyrl-base-test-predictions.jsonl"
+)
+adapted_prediction_path = Path(
+    "/kaggle/working/falsifyrl-adapted-test-predictions.jsonl"
+)
+save_predictions(base_prediction_path, base_predictions)
+save_predictions(adapted_prediction_path, adapted_predictions)
 
 report = {
     "dataset_test_path": str(TEST_PATH),
     "adapter_path": str(ADAPTER_DIR),
     "base_model_id": BASE_MODEL_ID,
-    "metrics": model_metrics,
+    "example_count": MAX_EXAMPLES,
+    "base_metrics": base_metrics,
+    "adapted_metrics": adapted_metrics,
+    "improvement": {
+        key: adapted_metrics[key] - base_metrics[key]
+        for key in adapted_metrics
+        if isinstance(adapted_metrics[key], float)
+    },
 }
 Path("/kaggle/working/kaggle-evaluation.json").write_text(
     json.dumps(report, indent=2, sort_keys=True) + "\\n"
@@ -238,10 +272,13 @@ print(json.dumps(report, indent=2, sort_keys=True))
         ),
         _markdown(
             """
-For the full executable-patch metric, download the prediction JSONL and run:
+For the full executable-patch metric, download both prediction JSONL files and run:
 
 ```powershell
-python scripts/evaluate_baselines.py --predictions falsifyrl-test-predictions.jsonl --split test
+python scripts/evaluate_baselines.py `
+  --predictions falsifyrl-base-test-predictions.jsonl --split test
+python scripts/evaluate_baselines.py `
+  --predictions falsifyrl-adapted-test-predictions.jsonl --split test
 ```
 
 That project-side evaluator re-executes each proposed declarative patch against both exploit and

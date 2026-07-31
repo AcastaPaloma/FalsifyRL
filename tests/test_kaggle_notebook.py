@@ -15,6 +15,9 @@ def test_kaggle_notebook_contains_reproducibility_contract() -> None:
     assert "assert len(rows) == 640" in rendered
     assert "adapter_config.json" in rendered
     assert "FALSIFYRL_MAX_EXAMPLES" in rendered
-    assert "falsifyrl-test-predictions.jsonl" in rendered
+    assert "falsifyrl-base-test-predictions.jsonl" in rendered
+    assert "falsifyrl-adapted-test-predictions.jsonl" in rendered
+    assert '"base_metrics": base_metrics' in rendered
+    assert '"adapted_metrics": adapted_metrics' in rendered
+    assert '"improvement"' in rendered
     assert "executable-patch metric" in rendered
-
