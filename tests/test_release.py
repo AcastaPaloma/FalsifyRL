@@ -16,9 +16,13 @@ from falsifyrl.release import (
     require_huggingface_token,
     require_kaggle_token,
 )
+from scripts.continue_dataset_release import await_audited_export
 from scripts.continue_dataset_release import (
-    await_audited_export,
-    update_private_manifest,
+    update_private_manifest as update_dataset_manifest,
+)
+from scripts.continue_model_release import await_passing_evaluation
+from scripts.continue_model_release import (
+    update_private_manifest as update_model_manifest,
 )
 
 
@@ -229,7 +233,7 @@ def test_dataset_release_updates_only_proven_submission_fields(tmp_path: Path) -
         encoding="utf-8",
     )
 
-    update_private_manifest(
+    update_dataset_manifest(
         manifest_path,
         huggingface_url="https://huggingface.co/datasets/owner/falsifyrl-adapted",
         kaggle_url="https://www.kaggle.com/datasets/owner/falsifyrl-adapted",
@@ -243,4 +247,95 @@ def test_dataset_release_updates_only_proven_submission_fields(tmp_path: Path) -
     assert updated["dataset"]["variant"] == "adapted"
     assert updated["attestations"]["dataset_public_on_both_platforms"] is True
     assert updated["attestations"]["same_dataset_used_for_training"] is True
+    assert updated["attestations"]["at_least_18"] is None
+
+
+def test_model_release_requires_passing_evaluation_and_published_dataset(
+    tmp_path: Path,
+) -> None:
+    state_path = tmp_path / "workflow.json"
+    WorkflowState(
+        plan=AutoScientistPlan(
+            source="file",
+            local_file="train.jsonl",
+            expected_training_rows=1,
+        ),
+        autoscientist_run_id="experiment-123",
+        autoscientist_status="succeeded",
+        best_win_rate=0.8,
+    ).save(state_path)
+    comparison_path = tmp_path / "comparison.json"
+    comparison_path.write_text(
+        json.dumps(
+            {
+                "metrics": {
+                    "base": {"composite_score": 0.0},
+                    "adapted": {
+                        "composite_score": 0.8,
+                        "json_validity": 0.99,
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    submission_path = tmp_path / "submission.json"
+    submission_path.write_text(
+        json.dumps(
+            {
+                "links": {
+                    "huggingface_dataset": "https://huggingface.co/datasets/owner/data",
+                    "kaggle_dataset": "https://www.kaggle.com/datasets/owner/data",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    state, comparison, _submission = await_passing_evaluation(
+        state_path,
+        comparison_path,
+        submission_path,
+        poll_seconds=0,
+        timeout_seconds=1,
+    )
+
+    assert state.autoscientist_run_id == "experiment-123"
+    assert comparison["metrics"]["adapted"]["composite_score"] == 0.8
+
+
+def test_model_release_records_links_without_claiming_runtime_success(
+    tmp_path: Path,
+) -> None:
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "links": {
+                    "huggingface_model": None,
+                    "kaggle_model": None,
+                    "huggingface_space": None,
+                    "evaluation_report": None,
+                },
+                "attestations": {
+                    "weights_public_on_both_platforms": None,
+                    "at_least_18": None,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    update_model_manifest(
+        manifest_path,
+        huggingface_model_url="https://huggingface.co/owner/model",
+        kaggle_model_url="https://www.kaggle.com/models/owner/model/pytorch/lora",
+        space_url="https://huggingface.co/spaces/owner/falsifyrl",
+        evaluation_report_url=(
+            "https://huggingface.co/owner/model/resolve/main/evaluation-report.json"
+        ),
+    )
+    updated = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert updated["attestations"]["weights_public_on_both_platforms"] is True
     assert updated["attestations"]["at_least_18"] is None
