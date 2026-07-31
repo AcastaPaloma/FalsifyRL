@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import TypeVar
@@ -70,15 +71,30 @@ def main() -> None:
         raise ValueError("--batch-size must be positive")
 
     import torch
-    from transformers import AutoModelForMultimodalLM, AutoProcessor
-
-    processor = AutoProcessor.from_pretrained(args.model_id)
-    processor.tokenizer.padding_side = "left"
-    model = AutoModelForMultimodalLM.from_pretrained(
-        args.model_id,
-        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-        device_map="auto",
+    from transformers import (
+        AutoModelForCausalLM,
+        AutoModelForMultimodalLM,
+        AutoTokenizer,
     )
+
+    token = os.environ.get("HF_TOKEN")
+    tokenizer = AutoTokenizer.from_pretrained(args.model_id, token=token)
+    tokenizer.padding_side = "left"
+    model_arguments = {
+        "token": token,
+        "torch_dtype": torch.float16 if torch.cuda.is_available() else torch.float32,
+        "device_map": "auto",
+    }
+    try:
+        model = AutoModelForCausalLM.from_pretrained(
+            args.model_id,
+            **model_arguments,
+        )
+    except ValueError:
+        model = AutoModelForMultimodalLM.from_pretrained(
+            args.model_id,
+            **model_arguments,
+        )
     if args.adapter is not None:
         from peft import PeftModel
 
@@ -106,13 +122,11 @@ def main() -> None:
     with args.output.open(file_mode, encoding="utf-8") as stream:
         for case_batch in batches(cases[generated_count:], args.batch_size):
             formatted = [
-                processor.apply_chat_template(
+                tokenizer.apply_chat_template(
                     [
                         {
                             "role": "user",
-                            "content": [
-                                {"type": "text", "text": case.render_prompt()}
-                            ],
+                            "content": case.render_prompt(),
                         }
                     ],
                     tokenize=False,
@@ -120,8 +134,8 @@ def main() -> None:
                 )
                 for case in case_batch
             ]
-            inputs = processor(
-                text=formatted,
+            inputs = tokenizer(
+                formatted,
                 padding=True,
                 return_tensors="pt",
             ).to(model.device)
@@ -130,10 +144,10 @@ def main() -> None:
                     **inputs,
                     max_new_tokens=args.max_new_tokens,
                     do_sample=False,
-                    pad_token_id=processor.tokenizer.eos_token_id,
+                    pad_token_id=tokenizer.eos_token_id,
                 )
             input_length = inputs["input_ids"].shape[1]
-            decoded = processor.batch_decode(
+            decoded = tokenizer.batch_decode(
                 outputs[:, input_length:],
                 skip_special_tokens=True,
             )
