@@ -15,6 +15,7 @@ from falsifyrl.autoscientist import (
     run_adaptation,
     run_autoscientist,
 )
+from scripts.continue_autoscientist import await_existing_adaptation
 
 
 class FakeDatasets:
@@ -238,3 +239,37 @@ def test_adaptation_persists_run_id_before_waiting() -> None:
     assert adaptation_call["job_specification"]["idempotency_key"] == (
         "falsifyrl-adapt-v1-dataset-123"
     )
+
+
+def test_resume_waits_on_existing_adaptation_without_starting_another(tmp_path) -> None:
+    class ExistingDatasets:
+        def get(self, dataset_id):
+            assert dataset_id == "dataset-123"
+            return SimpleNamespace(
+                status="succeeded",
+                progress=SimpleNamespace(processed_rows=1, total_rows=1),
+                error_data=None,
+            )
+
+        def run(self, *args, **kwargs):
+            raise AssertionError("resume must not create another dataset run")
+
+    state_path = tmp_path / "workflow.json"
+    state = WorkflowState(
+        plan=_plan(),
+        dataset_id="dataset-123",
+        dataset_status="running",
+        adaptation_run_id="adaptation-789",
+    )
+    state.save(state_path)
+
+    result = await_existing_adaptation(
+        SimpleNamespace(datasets=ExistingDatasets()),
+        state,
+        state_path,
+        poll_seconds=0,
+        timeout_seconds=1,
+    )
+
+    assert result.dataset_status == "succeeded"
+    assert WorkflowState.load(state_path).dataset_status == "succeeded"
