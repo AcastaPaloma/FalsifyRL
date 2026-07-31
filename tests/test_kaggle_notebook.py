@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from scripts.build_colab_notebook import colab_notebook
 from scripts.build_kaggle_notebook import notebook
+from scripts.continue_kaggle_notebook import (
+    await_verified_model_release,
+    update_private_manifest,
+)
 from scripts.prepare_kaggle_notebook import prepare_kaggle_notebook
 
 
@@ -64,3 +69,38 @@ def test_colab_notebook_uses_public_huggingface_artifacts() -> None:
     assert "hf_hub_download" in rendered
     assert "snapshot_download" in rendered
     assert "/kaggle/" not in rendered
+
+
+def test_kaggle_run_waits_for_hash_verified_model_release(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "links": {
+                    "kaggle_dataset": "https://www.kaggle.com/datasets/owner/data",
+                    "kaggle_model": (
+                        "https://www.kaggle.com/models/owner/model/pytorch/lora"
+                    ),
+                    "kaggle_notebook": None,
+                },
+                "attestations": {"weights_public_on_both_platforms": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    manifest = await_verified_model_release(
+        manifest_path,
+        poll_seconds=0,
+        timeout_seconds=1,
+    )
+    update_private_manifest(
+        manifest_path,
+        "https://www.kaggle.com/code/owner/falsifyrl-held-out-evaluation",
+    )
+    updated = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert manifest["attestations"]["weights_public_on_both_platforms"] is True
+    assert updated["links"]["kaggle_notebook"].endswith(
+        "falsifyrl-held-out-evaluation"
+    )
