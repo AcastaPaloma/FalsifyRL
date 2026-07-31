@@ -88,3 +88,14 @@ python -m ruff check .
 - The generated local release candidate is under `outputs/falsifyrl_seed_v1/` and is ignored by Git.
 - Validation: `python -m pytest -q` -> 12 passed; `python -m ruff check .` -> passed; full generation
   reported all 3,840 cases verified and all pairs reward-matched.
+
+### 2026-07-30 Evaluation Harness
+
+- Added strict prediction JSONL loading and metrics for JSON validity, verdict and failure-type
+  accuracy/macro-F1, responsible-agent exact match, evidence-step F1, executable patch success, and
+  a five-part composite.
+- Added always-aligned, reward-program-only, and executable-oracle baselines.
+- On the 640-case held-out `crossing_navigation` split, both non-reasoning baselines have 0.500
+  verdict accuracy and 0.333 verdict macro-F1; the reward-only baseline composite is 0.485. The
+  executable oracle scores 1.0.
+- Validation: `python -m pytest -q` -> 16 passed; `python -m ruff check .` -> passed.

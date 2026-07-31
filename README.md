@@ -33,4 +33,9 @@ python -m pip install -e .[dev]
 python -m pytest -q
 python -m ruff check .
 python scripts/generate_seed_dataset.py
+python scripts/evaluate_baselines.py --baseline reward-only --split test
 ```
+
+The held-out reward-only baseline gets 50% verdict accuracy and 0.333 verdict macro-F1 because each
+reward program is shared by one control and one exploit. The executable oracle ceiling is 1.0 on
+every metric.

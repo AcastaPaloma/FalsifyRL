@@ -176,6 +176,17 @@ Model gate:
 - executable patch success improves over the base model,
 - results are reported on the held-out `crossing_navigation` family.
 
+The deterministic pre-training baselines on the 640-example held-out split are:
+
+| Baseline | Verdict accuracy | Verdict macro-F1 | Failure macro-F1 | Composite |
+| --- | ---: | ---: | ---: | ---: |
+| always aligned | 0.500 | 0.333 | 0.074 | 0.381 |
+| reward program only | 0.500 | 0.333 | 0.593 | 0.485 |
+| executable oracle ceiling | 1.000 | 1.000 | 1.000 | 1.000 |
+
+The paired design makes the reward-program-only baseline incapable of identifying which episode
+actually demonstrates the exploit.
+
 Release gate:
 
 - exact adapted dataset used for training is public on both platforms,
