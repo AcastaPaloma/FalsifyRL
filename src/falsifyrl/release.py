@@ -4,6 +4,8 @@ import hashlib
 import json
 import os
 import shutil
+import tarfile
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -273,3 +275,94 @@ def render_model_card(
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(content, encoding="utf-8")
     return output
+
+
+def _safe_extract_archive(archive: Path, destination: Path) -> None:
+    destination_root = destination.resolve()
+    with tarfile.open(archive, mode="r:*") as bundle:
+        for member in bundle.getmembers():
+            member_path = (destination / member.name).resolve()
+            if destination_root not in member_path.parents and member_path != destination_root:
+                raise ValueError(f"unsafe checkpoint archive path: {member.name}")
+            if member.issym() or member.islnk() or member.isdev():
+                raise ValueError(
+                    f"checkpoint archive contains unsupported link/device: {member.name}"
+                )
+        bundle.extractall(destination)
+
+
+def prepare_model_bundle(
+    checkpoint_archive: str | Path,
+    bundle_dir: str | Path,
+    *,
+    base_model_id: str,
+    dataset_repo_id: str,
+    autoscientist_run_id: str,
+    best_win_rate: float,
+    evaluation_report: str | Path,
+    model_card_template: str | Path = "release/model/README.md",
+    license_path: str | Path = "LICENSE",
+) -> dict[str, Any]:
+    archive = Path(checkpoint_archive)
+    destination = Path(bundle_dir)
+    if destination.exists() and any(destination.iterdir()):
+        raise ValueError(f"model bundle destination must be empty: {destination}")
+    destination.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.TemporaryDirectory(prefix="falsifyrl-checkpoint-") as temporary:
+        extraction_root = Path(temporary)
+        _safe_extract_archive(archive, extraction_root)
+        adapter_configs = list(extraction_root.rglob("adapter_config.json"))
+        if len(adapter_configs) != 1:
+            raise ValueError(
+                "checkpoint must contain exactly one adapter_config.json, "
+                f"found {len(adapter_configs)}"
+            )
+        adapter_root = adapter_configs[0].parent
+        if not (adapter_root / "adapter_model.safetensors").is_file():
+            raise ValueError("checkpoint is missing adapter_model.safetensors")
+        for source in adapter_root.iterdir():
+            target = destination / source.name
+            if source.is_dir():
+                shutil.copytree(source, target)
+            else:
+                shutil.copy2(source, target)
+
+    report_source = Path(evaluation_report)
+    if not report_source.is_file():
+        raise FileNotFoundError(report_source)
+    report_target = destination / "evaluation-report.json"
+    shutil.copy2(report_source, report_target)
+    shutil.copy2(license_path, destination / "LICENSE")
+    render_model_card(
+        model_card_template,
+        destination / "README.md",
+        base_model_id=base_model_id,
+        dataset_repo_id=dataset_repo_id,
+        autoscientist_run_id=autoscientist_run_id,
+        best_win_rate=best_win_rate,
+        evaluation_report_url=report_target.name,
+    )
+    audit_model_bundle(destination)
+
+    files = {
+        path.relative_to(destination).as_posix(): {
+            "bytes": path.stat().st_size,
+            "sha256": _sha256(path),
+        }
+        for path in sorted(destination.rglob("*"))
+        if path.is_file()
+    }
+    manifest = {
+        "artifact": "falsifyrl-autoscientist",
+        "base_model_id": base_model_id,
+        "dataset_repo_id": dataset_repo_id,
+        "autoscientist_run_id": autoscientist_run_id,
+        "best_win_rate": best_win_rate,
+        "files": files,
+    }
+    (destination / "release-manifest.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return manifest
