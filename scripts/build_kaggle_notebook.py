@@ -201,7 +201,7 @@ def predict(model, prompt):
     with torch.inference_mode():
         output = model.generate(
             **inputs,
-            max_new_tokens=512,
+            max_new_tokens=256,
             do_sample=False,
             pad_token_id=processor.tokenizer.eos_token_id,
         )

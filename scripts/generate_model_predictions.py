@@ -32,7 +32,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--adapter", type=Path)
     parser.add_argument("--split", choices=("validation", "test"), default="test")
     parser.add_argument("--max-examples", type=int)
-    parser.add_argument("--max-new-tokens", type=int, default=512)
+    parser.add_argument("--max-new-tokens", type=int, default=256)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args()
