@@ -6,6 +6,7 @@ import tarfile
 from pathlib import Path
 
 import pytest
+import zstandard
 
 from falsifyrl.autoscientist import AutoScientistPlan, WorkflowState
 from falsifyrl.release import extract_adapter_checkpoint, prepare_model_bundle
@@ -24,6 +25,20 @@ def _checkpoint(path: Path) -> None:
             info = tarfile.TarInfo(name)
             info.size = len(content)
             archive.addfile(info, io.BytesIO(content))
+
+
+def _zstandard_checkpoint(path: Path) -> None:
+    uncompressed = io.BytesIO()
+    adapter_config = json.dumps({"base_model_name_or_path": "base/model"}).encode()
+    with tarfile.open(fileobj=uncompressed, mode="w") as archive:
+        for name, content in (
+            ("checkpoint/adapter_config.json", adapter_config),
+            ("checkpoint/adapter_model.safetensors", b"safe-tensor-bytes"),
+        ):
+            info = tarfile.TarInfo(name)
+            info.size = len(content)
+            archive.addfile(info, io.BytesIO(content))
+    path.write_bytes(zstandard.ZstdCompressor().compress(uncompressed.getvalue()))
 
 
 def test_checkpoint_preparation_extracts_and_audits_adapter(tmp_path: Path) -> None:
@@ -63,6 +78,20 @@ def test_checkpoint_can_be_extracted_for_prepublication_evaluation(
 ) -> None:
     archive = tmp_path / "checkpoint.tgz"
     _checkpoint(archive)
+
+    adapter_root = extract_adapter_checkpoint(archive, tmp_path / "extracted")
+
+    assert adapter_root.name == "checkpoint"
+    assert (adapter_root / "adapter_model.safetensors").read_bytes() == (
+        b"safe-tensor-bytes"
+    )
+
+
+def test_zstandard_checkpoint_can_be_extracted_for_prepublication_evaluation(
+    tmp_path: Path,
+) -> None:
+    archive = tmp_path / "checkpoint.tgz"
+    _zstandard_checkpoint(archive)
 
     adapter_root = extract_adapter_checkpoint(archive, tmp_path / "extracted")
 

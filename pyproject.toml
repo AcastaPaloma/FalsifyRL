@@ -25,6 +25,7 @@ release = [
   "huggingface-hub>=1.26,<2",
   "kagglehub>=1.0,<2",
   "python-dotenv>=1.0,<2",
+  "zstandard>=0.23,<1",
 ]
 demo = [
   "gradio>=5.49,<6",

@@ -20,6 +20,9 @@ DATASET_FILES = (
     "manifest.json",
 )
 
+ZSTANDARD_MAGIC = b"\x28\xb5\x2f\xfd"
+MAX_DECOMPRESSED_CHECKPOINT_BYTES = 4 * 1024 * 1024 * 1024
+
 ADAPTED_DATASET_SUPPORT_FILES = (
     "validation.csv",
     "validation.jsonl",
@@ -525,7 +528,7 @@ def render_model_card(
     return output
 
 
-def _safe_extract_archive(archive: Path, destination: Path) -> None:
+def _safe_extract_tar(archive: Path, destination: Path) -> None:
     destination_root = destination.resolve()
     with tarfile.open(archive, mode="r:*") as bundle:
         for member in bundle.getmembers():
@@ -537,6 +540,43 @@ def _safe_extract_archive(archive: Path, destination: Path) -> None:
                     f"checkpoint archive contains unsupported link/device: {member.name}"
                 )
         bundle.extractall(destination)
+
+
+def _decompress_zstandard_archive(archive: Path, destination: Path) -> None:
+    try:
+        import zstandard
+    except ImportError as error:
+        raise RuntimeError(
+            "Zstandard checkpoint support requires the release dependencies: "
+            "`pip install -e .[release]`."
+        ) from error
+
+    written = 0
+    with (
+        archive.open("rb") as source,
+        destination.open("wb") as target,
+        zstandard.ZstdDecompressor().stream_reader(source) as reader,
+    ):
+        for chunk in iter(lambda: reader.read(1024 * 1024), b""):
+            written += len(chunk)
+            if written > MAX_DECOMPRESSED_CHECKPOINT_BYTES:
+                raise ValueError(
+                    "decompressed checkpoint exceeds the 4 GiB safety limit"
+                )
+            target.write(chunk)
+
+
+def _safe_extract_archive(archive: Path, destination: Path) -> None:
+    with archive.open("rb") as stream:
+        magic = stream.read(len(ZSTANDARD_MAGIC))
+    if magic != ZSTANDARD_MAGIC:
+        _safe_extract_tar(archive, destination)
+        return
+
+    with tempfile.TemporaryDirectory(prefix="falsifyrl-zstandard-") as temporary:
+        decompressed = Path(temporary) / "checkpoint.tar"
+        _decompress_zstandard_archive(archive, decompressed)
+        _safe_extract_tar(decompressed, destination)
 
 
 def extract_adapter_checkpoint(
