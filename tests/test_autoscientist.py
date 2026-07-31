@@ -234,3 +234,7 @@ def test_adaptation_persists_run_id_before_waiting() -> None:
     assert result.dataset_status == "succeeded"
     assert result.adaptation_run_id is not None
     assert snapshots[0]["adaptation_run_id"] == result.adaptation_run_id
+    adaptation_call = client.datasets.run_calls[0]
+    assert adaptation_call["job_specification"]["idempotency_key"] == (
+        "falsifyrl-adapt-v1-dataset-123"
+    )

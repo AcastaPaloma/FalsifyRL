@@ -417,6 +417,9 @@ def run_adaptation(
         state.dataset_id,
         column_mapping={"prompt": "prompt", "completion": "completion"},
         training_type="instruction_dataset",
+        job_specification={
+            "idempotency_key": f"falsifyrl-adapt-v1-{state.dataset_id}",
+        },
         recipe_specification={
             "version": "1",
             "recipes": {
