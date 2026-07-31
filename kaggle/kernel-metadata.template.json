@@ -1,0 +1,16 @@
+{
+  "id": "OWNER/falsifyrl-held-out-evaluation",
+  "title": "FalsifyRL Held-Out Reward-Hacking Evaluation",
+  "code_file": "falsifyrl_evaluation.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": false,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "dataset_sources": [
+    "OWNER/falsifyrl-seed"
+  ],
+  "competition_sources": [],
+  "kernel_sources": []
+}
+
