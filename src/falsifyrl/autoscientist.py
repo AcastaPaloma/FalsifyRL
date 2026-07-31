@@ -409,6 +409,7 @@ def run_adaptation(
     state: WorkflowState,
     *,
     timeout: float = 7200,
+    on_adaptation_started: Callable[[WorkflowState], None] | None = None,
 ) -> WorkflowState:
     if not state.dataset_id:
         raise ValueError("ingest and estimate the dataset before adaptation")
@@ -433,6 +434,8 @@ def run_adaptation(
         },
     )
     state.adaptation_run_id = str(_value(run, "run_id"))
+    if on_adaptation_started is not None:
+        on_adaptation_started(state)
     completed = client.datasets.wait_for_completion(state.dataset_id, timeout=timeout)
     state.dataset_status = str(_value(completed, "status"))
     if state.dataset_status != "succeeded":

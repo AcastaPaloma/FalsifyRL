@@ -106,7 +106,11 @@ def main() -> None:
                 on_dataset_created=lambda current: current.save(args.state),
             )
         elif args.action == "adapt":
-            state = run_adaptation(client, state)
+            state = run_adaptation(
+                client,
+                state,
+                on_adaptation_started=lambda current: current.save(args.state),
+            )
         elif args.action == "export":
             state = export_and_audit_adapted_dataset(
                 client,

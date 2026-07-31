@@ -12,6 +12,7 @@ from falsifyrl.autoscientist import (
     export_and_audit_adapted_dataset,
     ingest_and_estimate,
     require_api_key,
+    run_adaptation,
     run_autoscientist,
 )
 
@@ -28,9 +29,20 @@ class FakeDatasets:
         assert dataset_id == "dataset-123"
         return SimpleNamespace(status="awaiting_input", row_count=1)
 
+    def wait_for_completion(self, dataset_id, timeout):
+        assert dataset_id == "dataset-123"
+        assert timeout > 0
+        return SimpleNamespace(status="succeeded")
+
     def run(self, dataset_id, **kwargs):
         assert dataset_id == "dataset-123"
         self.run_calls.append(kwargs)
+        if not kwargs.get("estimate", False):
+            return SimpleNamespace(
+                run_id="adaptation-789",
+                estimated_credits_consumed=42,
+                estimated_minutes=7,
+            )
         return SimpleNamespace(
             estimated_credits_consumed=42,
             estimated_minutes=7,
@@ -196,3 +208,23 @@ def test_export_audits_exact_adapted_dataset(tmp_path) -> None:
     assert result.adapted_completion_column == "enhanced_completion"
     assert result.adapted_export_sha256
     assert result.adapted_audit_sha256
+
+
+def test_adaptation_persists_run_id_before_waiting() -> None:
+    client = FakeClient()
+    state = WorkflowState(
+        plan=_plan(),
+        dataset_id="dataset-123",
+        dataset_status="awaiting_input",
+    )
+    snapshots = []
+
+    result = run_adaptation(
+        client,
+        state,
+        on_adaptation_started=lambda current: snapshots.append(current.to_dict()),
+    )
+
+    assert result.dataset_status == "succeeded"
+    assert result.adaptation_run_id is not None
+    assert snapshots[0]["adaptation_run_id"] == result.adaptation_run_id
