@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -235,13 +236,14 @@ def test_export_accepts_csv_text_returned_by_sdk(tmp_path) -> None:
         writer = csv.DictWriter(stream, fieldnames=("prompt", "completion"))
         writer.writeheader()
         writer.writerow({"prompt": "exact prompt", "completion": diagnosis})
+        writer.writerow({"prompt": "exact prompt", "completion": diagnosis})
 
     adapted_buffer = io.StringIO(newline="")
     writer = csv.DictWriter(
         adapted_buffer,
         fieldnames=(
-            "original_prompt",
-            "original_completion",
+            "prompt",
+            "completion",
             "enhanced_prompt",
             "enhanced_completion",
         ),
@@ -249,16 +251,20 @@ def test_export_accepts_csv_text_returned_by_sdk(tmp_path) -> None:
     writer.writeheader()
     writer.writerow(
         {
-            "original_prompt": "exact prompt",
-            "original_completion": diagnosis,
-            "enhanced_prompt": "exact prompt",
-            "enhanced_completion": diagnosis,
+            "prompt": "exact prompt",
+            "completion": diagnosis,
+            "enhanced_prompt": "",
+            "enhanced_completion": "not strict JSON",
         }
     )
     client = FakeClient()
     client.datasets.download = lambda dataset_id, file_format: adapted_buffer.getvalue()
     state = WorkflowState(
-        plan=_plan(),
+        plan=AutoScientistPlan(
+            source="huggingface",
+            source_url="https://huggingface.co/datasets/example/falsifyrl",
+            expected_training_rows=2,
+        ),
         dataset_id="dataset-123",
         dataset_status="succeeded",
         adaptation_run_id="adaptation-789",
@@ -273,6 +279,37 @@ def test_export_accepts_csv_text_returned_by_sdk(tmp_path) -> None:
 
     assert result.adapted_schema_valid is True
     assert result.adapted_row_count == 1
+    assert result.adapted_prompt_column == "prompt"
+    assert result.adapted_completion_column == "completion"
+    audit = json.loads(
+        (tmp_path / "adapted.audit.json").read_text(encoding="utf-8")
+    )
+    assert audit["source_row_count"] == 2
+    assert audit["source_unique_row_count"] == 1
+    assert audit["exact_duplicate_rows_collapsed"] == 1
+    assert audit["rejected_completion_columns"] == ["enhanced_completion"]
+
+
+def test_training_accepts_audited_exact_duplicate_collapse() -> None:
+    state = WorkflowState(
+        plan=AutoScientistPlan(
+            source="huggingface",
+            source_url="https://huggingface.co/datasets/example/falsifyrl",
+            expected_training_rows=2,
+        ),
+        dataset_id="dataset-123",
+        dataset_status="succeeded",
+        adapted_export_sha256="a" * 64,
+        adapted_audit_sha256="b" * 64,
+        adapted_row_count=1,
+        adapted_prompt_column="enhanced_prompt",
+        adapted_completion_column="enhanced_completion",
+        adapted_schema_valid=True,
+    )
+
+    result = run_autoscientist(FakeClient(), state)
+
+    assert result.autoscientist_status == "succeeded"
 
 
 def test_export_rejects_non_https_download_url(tmp_path) -> None:

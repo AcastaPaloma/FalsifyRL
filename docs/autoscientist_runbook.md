@@ -63,11 +63,18 @@ Export and revalidate the exact adapted rows before training:
 python scripts/autoscientist_workflow.py export
 ```
 
-The export gate selects `enhanced_prompt` / `enhanced_completion` when present, otherwise the
-original `prompt` / `completion` fields. It then requires all 2,560 source prompts exactly once,
-strict JSON completions, and preservation of the simulator-derived verdict, failure type,
-responsible agents, evidence, counterexample, and executable patch. It records the export and audit
-hashes in workflow state. AutoScientist training is blocked until this audit succeeds.
+The export gate selects an enhanced prompt or completion column only when it is nonblank for every
+exported row; otherwise it uses the populated original field. It requires all 2,560 verified source
+rows, allows only
+byte-identical duplicate `prompt` / `completion` records to collapse, and requires all 2,408 unique
+source records exactly once. It also requires strict JSON completions and preservation of the
+simulator-derived verdict, failure type, responsible agents, evidence, counterexample, and
+executable patch. It records the export and audit hashes in workflow state. AutoScientist training
+is blocked until this audit succeeds.
+
+For the recorded run, `enhanced_prompt` is blank and `enhanced_completion` fails strict
+label-preservation on part of the export. The audit therefore rejects both enhanced columns and
+selects the original `prompt` / `completion` columns uniformly from the exact processed export.
 
 ## 4. Train
 

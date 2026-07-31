@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
 import os
@@ -139,9 +140,36 @@ def prepare_adapted_dataset_bundle(
         audit.get(field) is True for field in required_audit_truths
     ):
         raise ValueError("adaptation audit does not prove an exact verified adapted dataset")
-    expected_train_rows = seed_manifest["validation"]["split_counts"]["train"]
-    if audit.get("row_count") != expected_train_rows:
-        raise ValueError("adapted row count does not match the verified training split")
+    expected_source_rows = seed_manifest["validation"]["split_counts"]["train"]
+    source_completions: dict[str, str] = {}
+    actual_source_rows = 0
+    with (seed / "train.csv").open("r", encoding="utf-8", newline="") as stream:
+        reader = csv.DictReader(stream)
+        for row in reader:
+            actual_source_rows += 1
+            prompt = row["prompt"]
+            completion = row["completion"]
+            previous = source_completions.get(prompt)
+            if previous is not None and completion != previous:
+                raise ValueError(
+                    "source training CSV contains a prompt with conflicting completions"
+                )
+            source_completions[prompt] = completion
+    expected_unique_rows = len(source_completions)
+    if actual_source_rows != expected_source_rows:
+        raise ValueError("source training row count does not match the seed manifest")
+    if audit.get("source_row_count") != expected_source_rows:
+        raise ValueError("audit source row count does not match the verified training split")
+    if audit.get("source_unique_row_count") != expected_unique_rows:
+        raise ValueError("audit unique source count does not match source_train.csv")
+    if audit.get("row_count") != expected_unique_rows:
+        raise ValueError(
+            "adapted row count does not match the exact-deduplicated training split"
+        )
+    if audit.get("exact_duplicate_rows_collapsed") != (
+        expected_source_rows - expected_unique_rows
+    ):
+        raise ValueError("audit exact-duplicate collapse count is inconsistent")
     if audit.get("source_sha256") != _sha256(seed / "train.csv"):
         raise ValueError("adaptation audit source hash does not match seed train.csv")
     if audit.get("adapted_sha256") != _sha256(adapted):
@@ -175,6 +203,9 @@ def prepare_adapted_dataset_bundle(
         "adaptation_run_id": audit["adaptation_run_id"],
         "training_file": "train.csv",
         "training_file_sha256": audit["adapted_sha256"],
+        "training_row_count": audit["row_count"],
+        "source_training_row_count": audit["source_row_count"],
+        "exact_duplicate_rows_collapsed": audit["exact_duplicate_rows_collapsed"],
         "files": bundle_files,
     }
     manifest_path = destination / "release-manifest.json"

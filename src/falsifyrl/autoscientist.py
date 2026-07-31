@@ -151,25 +151,32 @@ def _fetch_https(url: str, *, max_bytes: int = 100 * 1024 * 1024) -> bytes:
     return content
 
 
-def _select_adapted_columns(fieldnames: list[str]) -> tuple[str, str, str]:
+def _select_adapted_columns(
+    fieldnames: list[str],
+    rows: list[dict[str, str]],
+) -> tuple[str, str]:
     fields = set(fieldnames)
     prompt_column = next(
-        (name for name in ("enhanced_prompt", "prompt") if name in fields),
-        None,
-    )
-    completion_column = next(
-        (name for name in ("enhanced_completion", "completion") if name in fields),
+        (
+            name
+            for name in ("enhanced_prompt", "prompt")
+            if name in fields and all((row.get(name) or "").strip() for row in rows)
+        ),
         None,
     )
     identity_column = next(
-        (name for name in ("original_prompt", "prompt", prompt_column) if name in fields),
+        (
+            name
+            for name in ("original_prompt", "prompt", prompt_column)
+            if name in fields and all((row.get(name) or "").strip() for row in rows)
+        ),
         None,
     )
-    if not prompt_column or not completion_column or not identity_column:
+    if not prompt_column or not identity_column:
         raise ValueError(
-            "adapted CSV must expose enhanced_prompt/enhanced_completion or prompt/completion"
+            "adapted CSV must expose a fully populated prompt and source identity column"
         )
-    return prompt_column, completion_column, identity_column
+    return prompt_column, identity_column
 
 
 def _diagnosis_invariants(diagnosis: Diagnosis) -> dict[str, Any]:
@@ -200,29 +207,39 @@ def audit_adapted_csv(
         if source_reader.fieldnames != ["prompt", "completion"]:
             raise ValueError("source training CSV must have exactly prompt,completion columns")
         source_rows: dict[str, Diagnosis] = {}
+        source_completions: dict[str, str] = {}
+        source_row_count = 0
         for row in source_reader:
+            source_row_count += 1
             prompt = row["prompt"]
             if prompt in source_rows:
-                raise ValueError("source training CSV contains duplicate prompts")
+                if row["completion"] != source_completions[prompt]:
+                    raise ValueError(
+                        "source training CSV contains a prompt with conflicting completions"
+                    )
+                continue
             source_rows[prompt] = Diagnosis.from_json(row["completion"])
+            source_completions[prompt] = row["completion"]
 
-    if len(source_rows) != expected_rows:
+    if source_row_count != expected_rows:
         raise ValueError(
-            f"source training row count {len(source_rows)} != expected {expected_rows}"
+            f"source training row count {source_row_count} != expected {expected_rows}"
         )
+    source_unique_row_count = len(source_rows)
 
     with adapted.open("r", encoding="utf-8-sig", newline="") as stream:
         reader = csv.DictReader(stream)
         if not reader.fieldnames or len(reader.fieldnames) != len(set(reader.fieldnames)):
             raise ValueError("adapted CSV has missing or duplicate headers")
-        prompt_column, completion_column, identity_column = _select_adapted_columns(
-            reader.fieldnames
+        adapted_rows = list(reader)
+        prompt_column, identity_column = _select_adapted_columns(
+            reader.fieldnames,
+            adapted_rows,
         )
         seen_prompts: set[str] = set()
-        for row_number, row in enumerate(reader, start=2):
+        for row_number, row in enumerate(adapted_rows, start=2):
             training_prompt = row.get(prompt_column, "")
             identity_prompt = row.get(identity_column, "")
-            completion = row.get(completion_column, "")
             if not training_prompt.strip():
                 raise ValueError(f"adapted row {row_number} has a blank training prompt")
             if identity_prompt not in source_rows:
@@ -231,33 +248,61 @@ def audit_adapted_csv(
                 )
             if identity_prompt in seen_prompts:
                 raise ValueError(f"adapted row {row_number} duplicates a source prompt")
-            try:
-                diagnosis = Diagnosis.from_json(completion)
-            except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
-                raise ValueError(
-                    f"adapted row {row_number} has an invalid strict completion"
-                ) from error
-            if _diagnosis_invariants(diagnosis) != _diagnosis_invariants(
-                source_rows[identity_prompt]
-            ):
-                raise ValueError(
-                    f"adapted row {row_number} changed executable diagnosis invariants"
-                )
             seen_prompts.add(identity_prompt)
 
-    if len(seen_prompts) != expected_rows:
+        completion_candidates = [
+            name
+            for name in ("enhanced_completion", "completion")
+            if name in set(reader.fieldnames)
+            and all((row.get(name) or "").strip() for row in adapted_rows)
+        ]
+        completion_column = None
+        rejected_completion_columns: list[str] = []
+        for candidate in completion_candidates:
+            candidate_valid = True
+            for row in adapted_rows:
+                try:
+                    diagnosis = Diagnosis.from_json(row[candidate])
+                except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                    candidate_valid = False
+                    break
+                if _diagnosis_invariants(diagnosis) != _diagnosis_invariants(
+                    source_rows[row[identity_column]]
+                ):
+                    candidate_valid = False
+                    break
+            if candidate_valid:
+                completion_column = candidate
+                break
+            rejected_completion_columns.append(candidate)
+        if completion_column is None:
+            raise ValueError(
+                "adapted CSV has no fully valid label-preserving completion column"
+            )
+
+    if len(seen_prompts) != source_unique_row_count:
         raise ValueError(
-            f"adapted training row count {len(seen_prompts)} != expected {expected_rows}"
+            "adapted training row count "
+            f"{len(seen_prompts)} != exact-deduplicated source count "
+            f"{source_unique_row_count}"
         )
     if seen_prompts != set(source_rows):
         raise ValueError("adapted CSV does not contain every source training prompt exactly once")
     return {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "dataset_variant": "adapted",
         "row_count": len(seen_prompts),
+        "source_row_count": source_row_count,
+        "source_unique_row_count": source_unique_row_count,
+        "exact_duplicate_rows_collapsed": (
+            source_row_count - source_unique_row_count
+        ),
         "prompt_column": prompt_column,
         "completion_column": completion_column,
         "identity_column": identity_column,
+        "rejected_completion_columns": rejected_completion_columns,
+        "enhanced_prompt_selected": prompt_column == "enhanced_prompt",
+        "enhanced_completion_selected": completion_column == "enhanced_completion",
         "all_source_prompts_matched": True,
         "all_completions_strict_json": True,
         "all_diagnosis_invariants_preserved": True,
@@ -469,7 +514,8 @@ def run_autoscientist(
         not state.dataset_id
         or state.dataset_status != "succeeded"
         or not state.adapted_schema_valid
-        or state.adapted_row_count != state.plan.expected_training_rows
+        or not state.adapted_row_count
+        or state.adapted_row_count > state.plan.expected_training_rows
         or not state.adapted_export_sha256
         or not state.adapted_audit_sha256
         or not state.adapted_prompt_column

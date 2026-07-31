@@ -39,7 +39,8 @@ def await_audited_export(
         if (
             state.dataset_status == "succeeded"
             and state.adapted_schema_valid
-            and state.adapted_row_count == state.plan.expected_training_rows
+            and state.adapted_row_count
+            and state.adapted_row_count <= state.plan.expected_training_rows
             and state.adapted_export_path
             and state.adapted_audit_path
             and state.adapted_export_sha256

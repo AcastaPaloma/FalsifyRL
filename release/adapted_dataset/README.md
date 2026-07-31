@@ -41,22 +41,30 @@ a counterexample configuration, and an executable reward patch.
 
 ## Integrity audit
 
-Before this bundle can be prepared, every adapted row must pass all of these checks:
+The verified source split contains 2,560 rows. Of those, 152 are byte-identical duplicate
+`prompt`/`completion` records across eight repeated prompt groups. Adaption's processed export
+contains the 2,408 unique records once each. Before this bundle can be prepared, every adapted row
+must pass all of these checks:
 
-1. map to exactly one of the 2,560 verified source training prompts,
+1. map to one of the 2,408 unique verified source training records,
 2. parse as the exact eight-key diagnosis JSON schema,
 3. preserve the simulator-derived verdict, failure class, responsible agents, evidence steps,
    counterexample configuration, and executable patch,
-4. cover every source training prompt exactly once.
+4. cover every source record exactly once after exact-duplicate collapse.
 
 Explanatory wording and confidence may change during adaptation; executable scientific labels may
 not. The original pre-adaptation rows are included as `source_train.csv` for provenance.
+In this export, `enhanced_prompt` is blank and `enhanced_completion` does not preserve the strict
+label schema across all rows. The audited AutoScientist mapping therefore uses the populated
+`prompt` and `completion` columns uniformly; this selection is recorded in
+`adaptation-audit.json`.
 
 ## Split isolation
 
 | Split | Scenario families | Examples |
 | --- | --- | ---: |
-| train | `dual_arm_workspace`, `warehouse_handoff` | 2,560 |
+| source train | `dual_arm_workspace`, `warehouse_handoff` | 2,560 |
+| adapted train | `dual_arm_workspace`, `warehouse_handoff` | 2,408 |
 | validation | `cooperative_transport` | 640 |
 | test | `crossing_navigation` | 640 |
 

@@ -41,7 +41,12 @@ def _fake_dataset(source: Path) -> None:
         if filename == "manifest.json":
             continue
         path = source / filename
-        path.write_text(f"{filename}\n", encoding="utf-8")
+        content = (
+            "prompt,completion\np,c\n"
+            if filename == "train.csv"
+            else f"{filename}\n"
+        )
+        path.write_text(content, encoding="utf-8")
         file_manifest[filename] = {
             "bytes": path.stat().st_size,
             "sha256": _sha256(path),
@@ -103,6 +108,9 @@ def test_adapted_release_requires_exact_audited_training_file(tmp_path: Path) ->
     audit = {
         "dataset_variant": "adapted",
         "row_count": 1,
+        "source_row_count": 1,
+        "source_unique_row_count": 1,
+        "exact_duplicate_rows_collapsed": 0,
         "all_source_prompts_matched": True,
         "all_completions_strict_json": True,
         "all_diagnosis_invariants_preserved": True,
@@ -126,6 +134,8 @@ def test_adapted_release_requires_exact_audited_training_file(tmp_path: Path) ->
 
     assert release_manifest["dataset_variant"] == "adapted"
     assert release_manifest["training_file_sha256"] == _sha256(adapted)
+    assert release_manifest["training_row_count"] == 1
+    assert release_manifest["source_training_row_count"] == 1
     assert (bundle / "train.csv").read_bytes() == adapted.read_bytes()
     assert (bundle / "source_train.csv").read_bytes() == (source / "train.csv").read_bytes()
 
@@ -292,7 +302,7 @@ def test_dataset_release_waits_for_exact_audited_export(tmp_path: Path) -> None:
         plan=AutoScientistPlan(
             source="file",
             local_file="train.jsonl",
-            expected_training_rows=1,
+            expected_training_rows=2,
         ),
         dataset_id="dataset-123",
         dataset_status="succeeded",
