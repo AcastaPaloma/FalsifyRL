@@ -24,6 +24,9 @@ release = [
   "huggingface-hub>=1.26,<2",
   "kagglehub>=1.0,<2",
 ]
+demo = [
+  "gradio>=5.49,<6",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

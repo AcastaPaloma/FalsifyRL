@@ -64,3 +64,23 @@ The model card must replace all run-specific placeholders before either publishe
 The Kaggle model handle is published as
 `OWNER/falsifyrl-autoscientist/pytorch/lora`.
 
+## Publish the interactive Space
+
+Prepare the Space bundle from held-out examples:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/prepare_space.py
+```
+
+Publish only after the model repository exists:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/publish_space.py `
+  --owner OWNER `
+  --base-model-id BASE_MODEL_ID `
+  --model-repo-id OWNER/falsifyrl-autoscientist
+```
+
+The publisher uploads 16 examples representing eight reward-matched control/exploit pairs and sets
+the public Space variables needed for lazy model loading. Verify both a control and exploit
+prediction after the Space finishes building.

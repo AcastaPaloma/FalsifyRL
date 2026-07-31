@@ -205,6 +205,50 @@ def publish_kaggle_model(
     return f"https://www.kaggle.com/models/{handle}"
 
 
+def publish_huggingface_space(
+    bundle_dir: str | Path,
+    *,
+    owner: str,
+    base_model_id: str,
+    model_repo_id: str,
+    slug: str = "falsifyrl",
+) -> str:
+    try:
+        from huggingface_hub import HfApi
+    except ImportError as error:
+        raise RuntimeError(
+            "Install release dependencies with `pip install -e .[release]`."
+        ) from error
+    bundle = Path(bundle_dir)
+    required = {"README.md", "app.py", "requirements.txt", "examples.json"}
+    missing = sorted(filename for filename in required if not (bundle / filename).is_file())
+    if missing:
+        raise ValueError(f"Space bundle is missing required files: {missing}")
+    examples = json.loads((bundle / "examples.json").read_text(encoding="utf-8"))
+    if len(examples) < 16:
+        raise ValueError("Space bundle must include eight matched control/exploit pairs")
+
+    repo_id = f"{owner}/{slug}"
+    token = require_huggingface_token()
+    api = HfApi(token=token)
+    api.create_repo(
+        repo_id=repo_id,
+        repo_type="space",
+        space_sdk="gradio",
+        private=False,
+        exist_ok=True,
+    )
+    api.upload_folder(
+        folder_path=bundle,
+        repo_id=repo_id,
+        repo_type="space",
+        commit_message="Publish FalsifyRL interactive critic demo",
+    )
+    api.add_space_variable(repo_id, "BASE_MODEL_ID", base_model_id)
+    api.add_space_variable(repo_id, "MODEL_REPO_ID", model_repo_id)
+    return f"https://huggingface.co/spaces/{repo_id}"
+
+
 def render_model_card(
     template_path: str | Path,
     destination: str | Path,

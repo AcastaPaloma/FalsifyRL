@@ -135,3 +135,17 @@ Torch/Stable-Baselines requirements and is not authoritative.
   exact hashes for the six data files, dataset card, source manifest, and license.
 - Validation: `python -m pytest -q` -> 25 passed; `python -m ruff check .` -> passed; `pip check` ->
   no broken requirements.
+
+### 2026-07-30 Interactive Demo Shell
+
+- Added a Gradio Hugging Face Space that exposes eight held-out reward-matched control/exploit
+  pairs, task requirements, reward code, episode trace, model JSON, and executable gold JSON.
+- The app lazy-loads a base model plus PEFT adapter from `BASE_MODEL_ID` and `MODEL_REPO_ID`. Before
+  those are configured, it explicitly reports `checkpoint_pending` and never presents gold output
+  as a model prediction.
+- Added Space staging and a publisher that requires the final model IDs and writes only public Space
+  variables.
+- Local browser QA at `http://127.0.0.1:7862` confirmed visible hero text, matched-pair labels,
+  scenario/task/reward/trace rendering, and the explicit checkpoint-pending interaction.
+- Validation: `python -m pytest -q` -> 28 passed; `python -m ruff check .` -> passed; `space/app.py`
+  compiled; the staged bundle contains 16 examples across eight pairs.
