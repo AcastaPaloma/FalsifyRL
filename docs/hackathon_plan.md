@@ -71,10 +71,10 @@ scripts/evaluate_falsifyrl.py
 tests/test_falsifyrl_*.py
 ```
 
-PaintMerge is not a package or runtime dependency. Its existing MuJoCo two-arm assets may later
-provide one external evaluation and visual-demo family. FalsifyRL must not depend exclusively on
-painting semantics, because the held-out benchmark is intended to measure cross-task
-reward-falsification behavior.
+FalsifyRL owns its generators, validators, benchmark splits, evaluation, and release pipeline. It
+does not import another project or depend on a task-specific simulator. The held-out benchmark
+therefore measures cross-task reward-falsification behavior rather than memorization of one
+application's semantics.
 
 ## Scientific Design
 
