@@ -36,7 +36,7 @@ simulator-derived JSON—not language-model annotations.
         ),
         _code(
             """
-%pip install -q "transformers>=5.8,<6" "peft>=0.17,<1" "accelerate>=1,<2"
+%pip install -q "transformers>=5.8,<6" "peft>=0.17,<1" "accelerate>=1,<2" "pillow>=11,<13"
 """
         ),
         _code(

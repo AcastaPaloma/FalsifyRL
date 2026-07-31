@@ -1,4 +1,6 @@
 gradio>=5.49,<6
 peft>=0.17,<1
 torch>=2.4,<3
+torchvision>=0.22,<1
 transformers>=5.8,<6
+pillow>=11,<13
