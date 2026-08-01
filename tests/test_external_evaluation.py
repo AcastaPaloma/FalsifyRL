@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from falsifyrl.dataset import DatasetBuildConfig, build_cases
 from scripts.finalize_external_evaluation import (
     evaluate_exact_predictions,
     finalize,
+    verify_staged_evidence,
 )
 
 
@@ -29,6 +31,10 @@ def _test_cases() -> list:
         for case in build_cases(DatasetBuildConfig())
         if case.scenario.split.value == "test"
     ]
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def test_external_predictions_must_cover_exact_test_split(tmp_path: Path) -> None:
@@ -105,3 +111,89 @@ def test_finalize_builds_fail_closed_colab_comparison(tmp_path: Path) -> None:
     updated = json.loads(submission.read_text(encoding="utf-8"))
     assert updated["identifiers"]["base_model_id"] == "Qwen/Qwen3.5-9B"
     assert updated["metrics"]["trained_json_validity"] == 1.0
+
+
+def test_staged_evidence_is_bound_to_exact_run_and_files(tmp_path: Path) -> None:
+    cases = _test_cases()
+    aligned = next(case.diagnosis for case in cases if case.case_role == "control")
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    base = evidence / "falsifyrl-base-test-predictions.jsonl"
+    adapted = evidence / "falsifyrl-adapted-test-predictions.jsonl"
+    _write_predictions(
+        base,
+        {case.example_id: aligned.to_json() for case in cases},
+    )
+    _write_predictions(
+        adapted,
+        {case.example_id: case.diagnosis.to_json() for case in cases},
+    )
+
+    state = WorkflowState(
+        plan=AutoScientistPlan(
+            source="file",
+            local_file="train.jsonl",
+            model="Qwen/Qwen3.5-9B",
+        ),
+        autoscientist_run_id="run-qwen",
+        autoscientist_status="succeeded",
+        best_win_rate=0.9,
+        resolved_model="Qwen/Qwen3.5-9B",
+        download_available=True,
+    )
+    state_path = tmp_path / "workflow.json"
+    state.save(state_path)
+    adapter = tmp_path / "adapter_model.safetensors"
+    adapter.write_bytes(b"adapter")
+    dataset_manifest = tmp_path / "dataset-manifest.json"
+    dataset_manifest.write_text(
+        json.dumps(
+            {"files": {"test.jsonl": {"sha256": "heldout-test-sha"}}}
+        ),
+        encoding="utf-8",
+    )
+    report = {
+        "run_id": "run-qwen",
+        "base_model_id": "Qwen/Qwen3.5-9B",
+        "adapter_sha256": _sha256(adapter),
+        "example_count": 640,
+        "base_predictions_sha256": _sha256(base),
+        "adapted_predictions_sha256": _sha256(adapted),
+    }
+    report_path = evidence / "colab-evaluation.json"
+    report_path.write_text(json.dumps(report), encoding="utf-8")
+    files = {
+        path.name: {"sha256": _sha256(path), "bytes": path.stat().st_size}
+        for path in (report_path, base, adapted)
+    }
+    manifest = {
+        "autoscientist_run_id": "run-qwen",
+        "base_model_id": "Qwen/Qwen3.5-9B",
+        "checkpoint_revision": "a" * 40,
+        "adapter_sha256": _sha256(adapter),
+        "test_jsonl_sha256": "heldout-test-sha",
+        "example_count": 640,
+        "do_sample": False,
+        "files": files,
+    }
+    (evidence / "evaluation-manifest.json").write_text(
+        json.dumps(manifest),
+        encoding="utf-8",
+    )
+
+    verified = verify_staged_evidence(
+        evidence_dir=evidence,
+        state_path=state_path,
+        adapter_weights=adapter,
+        dataset_manifest=dataset_manifest,
+    )
+    assert verified == (base, adapted)
+
+    adapted.write_text("{}\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="hash mismatch"):
+        verify_staged_evidence(
+            evidence_dir=evidence,
+            state_path=state_path,
+            adapter_weights=adapter,
+            dataset_manifest=dataset_manifest,
+        )

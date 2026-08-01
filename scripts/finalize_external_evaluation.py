@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
+import shutil
 from pathlib import Path
 
 from falsifyrl.autoscientist import WorkflowState
@@ -49,6 +51,110 @@ def _write_json(path: Path, value: dict) -> None:
         json.dumps(value, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+
+
+def verify_staged_evidence(
+    *,
+    evidence_dir: Path,
+    state_path: Path,
+    adapter_weights: Path,
+    dataset_manifest: Path,
+) -> tuple[Path, Path]:
+    state = WorkflowState.load(state_path)
+    manifest_path = evidence_dir / "evaluation-manifest.json"
+    report_path = evidence_dir / "colab-evaluation.json"
+    base_path = evidence_dir / "falsifyrl-base-test-predictions.jsonl"
+    adapted_path = evidence_dir / "falsifyrl-adapted-test-predictions.jsonl"
+    for path in (manifest_path, report_path, base_path, adapted_path):
+        if not path.is_file():
+            raise FileNotFoundError(path)
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    dataset = json.loads(dataset_manifest.read_text(encoding="utf-8"))
+    expected_files = {
+        report_path.name: report_path,
+        base_path.name: base_path,
+        adapted_path.name: adapted_path,
+    }
+    if set(manifest.get("files", {})) != set(expected_files):
+        raise ValueError("staged evidence manifest has an unexpected file set")
+    for name, path in expected_files.items():
+        binding = manifest["files"][name]
+        if binding.get("sha256") != _sha256(path):
+            raise ValueError(f"staged evidence hash mismatch for {name}")
+        if binding.get("bytes") != path.stat().st_size:
+            raise ValueError(f"staged evidence byte-size mismatch for {name}")
+
+    expected_test_sha = dataset.get("files", {}).get("test.jsonl", {}).get(
+        "sha256"
+    )
+    expected_adapter_sha = _sha256(adapter_weights)
+    bindings = {
+        "autoscientist_run_id": state.autoscientist_run_id,
+        "base_model_id": state.resolved_model,
+        "adapter_sha256": expected_adapter_sha,
+        "test_jsonl_sha256": expected_test_sha,
+        "example_count": 640,
+    }
+    for key, expected in bindings.items():
+        if expected is None or manifest.get(key) != expected:
+            raise ValueError(f"staged evidence binding mismatch for {key}")
+    if not isinstance(manifest.get("checkpoint_revision"), str) or len(
+        manifest["checkpoint_revision"]
+    ) != 40:
+        raise ValueError("staged evidence must pin a 40-character checkpoint revision")
+    if manifest.get("do_sample") is not False:
+        raise ValueError("staged evidence must use deterministic decoding")
+
+    report_bindings = {
+        "run_id": state.autoscientist_run_id,
+        "base_model_id": state.resolved_model,
+        "adapter_sha256": expected_adapter_sha,
+        "example_count": 640,
+        "base_predictions_sha256": _sha256(base_path),
+        "adapted_predictions_sha256": _sha256(adapted_path),
+    }
+    for key, expected in report_bindings.items():
+        if report.get(key) != expected:
+            raise ValueError(f"Colab report binding mismatch for {key}")
+    return base_path, adapted_path
+
+
+def download_staged_evidence(
+    *,
+    repo_id: str,
+    revision: str,
+    run_id: str,
+    destination: Path,
+    token: str,
+) -> Path:
+    if len(revision) != 40:
+        raise ValueError("evaluation revision must be a 40-character commit")
+    if not token:
+        raise ValueError("HF_TOKEN is required for private staged evidence")
+    from huggingface_hub import hf_hub_download
+
+    destination.mkdir(parents=True, exist_ok=True)
+    prefix = f"runs/{run_id}/evaluation"
+    filenames = (
+        "evaluation-manifest.json",
+        "colab-evaluation.json",
+        "falsifyrl-base-test-predictions.jsonl",
+        "falsifyrl-adapted-test-predictions.jsonl",
+    )
+    for filename in filenames:
+        cached = Path(
+            hf_hub_download(
+                repo_id=repo_id,
+                repo_type="model",
+                revision=revision,
+                filename=f"{prefix}/{filename}",
+                token=token,
+            )
+        )
+        shutil.copy2(cached, destination / filename)
+    return destination
 
 
 def _update_private_manifest(
@@ -139,8 +245,10 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=Path("outputs/autoscientist/workflow.json"),
     )
-    parser.add_argument("--base-predictions", type=Path, required=True)
-    parser.add_argument("--adapted-predictions", type=Path, required=True)
+    parser.add_argument("--base-predictions", type=Path)
+    parser.add_argument("--adapted-predictions", type=Path)
+    parser.add_argument("--staging-repo-id")
+    parser.add_argument("--staging-revision")
     parser.add_argument("--adapter-weights", type=Path, required=True)
     parser.add_argument(
         "--dataset-manifest",
@@ -158,10 +266,35 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    base_predictions = args.base_predictions
+    adapted_predictions = args.adapted_predictions
+    if args.staging_repo_id:
+        if not args.staging_revision:
+            raise ValueError("--staging-revision is required with --staging-repo-id")
+        state = WorkflowState.load(args.state)
+        if not state.autoscientist_run_id:
+            raise ValueError("workflow state has no AutoScientist run ID")
+        staged_dir = download_staged_evidence(
+            repo_id=args.staging_repo_id,
+            revision=args.staging_revision,
+            run_id=state.autoscientist_run_id,
+            destination=args.output_dir / "staged-evidence",
+            token=os.environ.get("HF_TOKEN", ""),
+        )
+        base_predictions, adapted_predictions = verify_staged_evidence(
+            evidence_dir=staged_dir,
+            state_path=args.state,
+            adapter_weights=args.adapter_weights,
+            dataset_manifest=args.dataset_manifest,
+        )
+    if base_predictions is None or adapted_predictions is None:
+        raise ValueError(
+            "provide both local prediction files or private staging arguments"
+        )
     value = finalize(
         state_path=args.state,
-        base_predictions=args.base_predictions,
-        adapted_predictions=args.adapted_predictions,
+        base_predictions=base_predictions,
+        adapted_predictions=adapted_predictions,
         adapter_weights=args.adapter_weights,
         dataset_manifest=args.dataset_manifest,
         base_report_path=args.output_dir / "base-test.json",
