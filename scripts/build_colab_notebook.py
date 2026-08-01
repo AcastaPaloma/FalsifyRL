@@ -13,6 +13,9 @@ else:
 DEFAULT_BASE_MODEL_ID = "Qwen/Qwen3.5-9B"
 DEFAULT_RUN_ID = "2f10c842-c124-407b-89c0-f4af5a761bb4"
 DEFAULT_ARCHIVE_NAME = "falsifyrl-autoscientist-current-checkpoint.tar.zst"
+STAGING_REPO_PLACEHOLDER = "__FALSIFYRL_STAGING_REPO_ID__"
+STAGING_REVISION_PLACEHOLDER = "__FALSIFYRL_STAGING_REVISION__"
+STAGING_ADAPTER_PATH_PLACEHOLDER = "__FALSIFYRL_STAGING_ADAPTER_PATH__"
 
 
 def colab_notebook(
@@ -20,6 +23,12 @@ def colab_notebook(
     base_model_id: str = DEFAULT_BASE_MODEL_ID,
     run_id: str = DEFAULT_RUN_ID,
     archive_name: str = DEFAULT_ARCHIVE_NAME,
+    staging_repo_id: str | None = None,
+    staging_revision: str | None = None,
+    staging_adapter_path: str | None = None,
+    max_examples: int | None = None,
+    max_new_tokens: int = 768,
+    batch_size: int = 1,
 ) -> dict:
     value = notebook()
     cells = value["cells"]
@@ -28,10 +37,10 @@ def colab_notebook(
         for line in """# FalsifyRL — Colab GPU held-out evaluation
 
 This notebook evaluates the unadapted base model and the exact AutoScientist LoRA on the entirely
-held-out `crossing_navigation` family. It can load a private, pre-publication checkpoint from your
-Google Drive or the public Hugging Face release. Select a paid Colab L4/A100 runtime before running
+held-out `crossing_navigation` family. It loads either a commit-pinned private Hugging Face staging
+checkpoint or the public Hugging Face release. Select a paid Colab L4/A100 runtime before running
 all cells. Set `FALSIFYRL_MAX_EXAMPLES` for a smoke test; omit it for the exact 640-example
-comparison. Add `HF_TOKEN` in Colab Secrets only when the selected base model is gated.
+comparison. Add `HF_TOKEN` in Colab Secrets for private staging or a gated base model.
 """.splitlines(keepends=True)
     ]
     cells[1]["source"] = [
@@ -39,10 +48,35 @@ comparison. Add `HF_TOKEN` in Colab Secrets only when the selected base model is
         for line in (
             '%pip install -q "transformers>=5.8,<6" "peft>=0.17,<1" '
             '"accelerate>=1,<2"\n'
-            '%pip install -q "pillow>=11,<13" "huggingface_hub>=0.36,<2" '
-            '"zstandard>=0.23,<1"\n'
+            '%pip install -q "pillow>=11,<13" "huggingface_hub>=0.36,<2"\n'
+            "%pip uninstall -q -y torchao\n"
         ).splitlines(keepends=True)
     ]
+    runtime_config = [
+        "import os\n",
+        f'os.environ["FALSIFYRL_MAX_NEW_TOKENS"] = "{max_new_tokens}"\n',
+        f'os.environ["FALSIFYRL_BATCH_SIZE"] = "{batch_size}"\n',
+    ]
+    if max_examples is not None:
+        runtime_config.append(
+            f'os.environ["FALSIFYRL_MAX_EXAMPLES"] = "{max_examples}"\n'
+        )
+    cells[1]["source"] = [*runtime_config, "\n", *cells[1]["source"]]
+    cells[1]["source"].extend(
+        [
+            "\n",
+            "# Release stale model objects when rerunning a notebook in one runtime.\n",
+            "import gc\n",
+            'globals().pop("model", None)\n',
+            'globals().pop("base_model", None)\n',
+            "gc.collect()\n",
+            "try:\n",
+            "    import torch\n",
+            "    torch.cuda.empty_cache()\n",
+            "except Exception:\n",
+            "    pass\n",
+        ]
+    )
     cells[2]["source"] = [
         line
         for line in """import hashlib
@@ -73,22 +107,17 @@ assert {row["scenario_family"] for row in rows} == {"crossing_navigation"}
         line
         for line in """## Load the exact AutoScientist adapter
 
-Before publication, upload the downloaded AutoScientist checkpoint to Google Drive as
-`falsifyrl-autoscientist-current-checkpoint.tar.zst`. The notebook mounts Drive and extracts it
-locally. After publication, if that private file is absent, it falls back to the public Hugging Face
-adapter. The expected base-model ID is pinned explicitly so internal training-provider aliases do
-not leak into reproducibility.
+Before publication, stage the exact AutoScientist checkpoint in a private Hugging Face model repo.
+The notebook pins the immutable staging commit, verifies the checkpoint manifest and adapter hash,
+then uploads only compact prediction evidence to the same private repo. After publication it can
+instead use the public Hugging Face adapter. The expected base-model ID is pinned explicitly so
+internal training-provider aliases do not leak into reproducibility.
 """.splitlines(keepends=True)
     ]
     cells[6]["source"] = [
         line
-        for line in """import shutil
-import tarfile
-import tempfile
-
-import torch
-import zstandard
-from google.colab import drive, userdata
+        for line in """import torch
+from google.colab import userdata
 from huggingface_hub import snapshot_download
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoModelForMultimodalLM, AutoTokenizer
@@ -102,42 +131,58 @@ EXPECTED_BASE_MODEL_ID = os.environ.get(
     "FALSIFYRL_BASE_MODEL_ID",
     "Qwen/Qwen3.5-9B",
 )
-PRIVATE_ARCHIVE_NAME = os.environ.get(
-    "FALSIFYRL_ADAPTER_ARCHIVE_NAME",
-    "falsifyrl-autoscientist-current-checkpoint.tar.zst",
-)
-
 MODEL_REPO_ID = os.environ.get(
     "FALSIFYRL_MODEL_REPO_ID",
     "KuanKuanKuan/falsifyrl-autoscientist",
 )
-
-def extract_private_adapter(archive_path):
-    destination = Path("/content/falsifyrl-private-adapter")
-    if destination.exists():
-        shutil.rmtree(destination)
-    destination.mkdir(parents=True)
-    with tempfile.NamedTemporaryFile(suffix=".tar") as decompressed:
-        with Path(archive_path).open("rb") as source:
-            reader = zstandard.ZstdDecompressor().stream_reader(source)
-            shutil.copyfileobj(reader, decompressed)
-        decompressed.flush()
-        with tarfile.open(decompressed.name, mode="r:") as archive:
-            archive.extractall(destination, filter="data")
-    configs = list(destination.rglob("adapter_config.json"))
-    assert len(configs) == 1, f"expected one adapter config, found {len(configs)}"
-    adapter_dir = configs[0].parent
-    assert (adapter_dir / "adapter_model.safetensors").is_file()
-    return adapter_dir
-
-drive.mount("/content/drive")
-private_matches = list(Path("/content/drive/MyDrive").rglob(PRIVATE_ARCHIVE_NAME))
-assert len(private_matches) <= 1, (
-    f"found multiple private checkpoints named {PRIVATE_ARCHIVE_NAME}; keep exactly one"
+RUN_ID = os.environ.get(
+    "FALSIFYRL_RUN_ID",
+    "2f10c842-c124-407b-89c0-f4af5a761bb4",
 )
-if private_matches:
-    ADAPTER_DIR = extract_private_adapter(private_matches[0])
-    ADAPTER_SOURCE = str(private_matches[0])
+STAGING_REPO_ID = os.environ.get(
+    "FALSIFYRL_STAGING_REPO_ID",
+    "__FALSIFYRL_STAGING_REPO_ID__",
+)
+STAGING_REVISION = os.environ.get(
+    "FALSIFYRL_STAGING_REVISION",
+    "__FALSIFYRL_STAGING_REVISION__",
+)
+STAGING_ADAPTER_PATH = os.environ.get(
+    "FALSIFYRL_STAGING_ADAPTER_PATH",
+    "__FALSIFYRL_STAGING_ADAPTER_PATH__",
+).strip("/")
+STAGING_MANIFEST_PATH = f"runs/{RUN_ID}/checkpoint-manifest.json"
+
+def file_sha256(path):
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+if STAGING_REPO_ID:
+    assert HF_TOKEN, "enable HF_TOKEN for this private staging notebook"
+    assert len(STAGING_REVISION) == 40, "pin the immutable 40-character staging commit"
+    assert STAGING_ADAPTER_PATH, "private staging adapter path is required"
+    staging_root = Path(snapshot_download(
+        STAGING_REPO_ID,
+        repo_type="model",
+        revision=STAGING_REVISION,
+        token=HF_TOKEN,
+        allow_patterns=[f"{STAGING_ADAPTER_PATH}/*", STAGING_MANIFEST_PATH],
+    ))
+    ADAPTER_DIR = staging_root / STAGING_ADAPTER_PATH
+    checkpoint_manifest = json.loads(
+        (staging_root / STAGING_MANIFEST_PATH).read_text()
+    )
+    assert checkpoint_manifest["autoscientist_run_id"] == RUN_ID
+    assert checkpoint_manifest["base_model_id"] == EXPECTED_BASE_MODEL_ID
+    assert checkpoint_manifest["adapter_path"] == STAGING_ADAPTER_PATH
+    assert checkpoint_manifest["adapted_dataset"]["test_jsonl_sha256"] == file_sha256(TEST_PATH)
+    assert checkpoint_manifest["adapter_model"]["sha256"] == file_sha256(
+        ADAPTER_DIR / "adapter_model.safetensors"
+    )
+    ADAPTER_SOURCE = f"{STAGING_REPO_ID}@{STAGING_REVISION}:{STAGING_ADAPTER_PATH}"
 else:
     ADAPTER_DIR = Path(snapshot_download(MODEL_REPO_ID, token=HF_TOKEN))
     ADAPTER_SOURCE = MODEL_REPO_ID
@@ -193,13 +238,7 @@ def sha256(path):
             digest.update(chunk)
     return digest.hexdigest()
 
-RUN_ID = os.environ.get(
-    "FALSIFYRL_RUN_ID",
-    "2f10c842-c124-407b-89c0-f4af5a761bb4",
-)
-COLAB_OUTPUT_DIR = (
-    Path("/content/drive/MyDrive/FalsifyRL/evaluation") / RUN_ID
-)
+COLAB_OUTPUT_DIR = Path("/content/FalsifyRL/evaluation") / RUN_ID
 COLAB_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 base_prediction_path = COLAB_OUTPUT_DIR / "falsifyrl-base-test-predictions.jsonl"
 adapted_prediction_path = COLAB_OUTPUT_DIR / "falsifyrl-adapted-test-predictions.jsonl"
@@ -226,15 +265,75 @@ report = {
 }
 report_path = COLAB_OUTPUT_DIR / "colab-evaluation.json"
 report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\\n")
+artifact_manifest = {
+    "schema_version": 1,
+    "autoscientist_run_id": RUN_ID,
+    "base_model_id": BASE_MODEL_ID,
+    "checkpoint_revision": STAGING_REVISION or None,
+    "adapter_sha256": report["adapter_sha256"],
+    "test_jsonl_sha256": file_sha256(TEST_PATH),
+    "example_count": MAX_EXAMPLES,
+    "batch_size": BATCH_SIZE,
+    "max_new_tokens": int(os.environ.get("FALSIFYRL_MAX_NEW_TOKENS", 768)),
+    "do_sample": False,
+    "files": {
+        base_prediction_path.name: {
+            "sha256": report["base_predictions_sha256"],
+            "bytes": base_prediction_path.stat().st_size,
+        },
+        adapted_prediction_path.name: {
+            "sha256": report["adapted_predictions_sha256"],
+            "bytes": adapted_prediction_path.stat().st_size,
+        },
+        report_path.name: {
+            "sha256": sha256(report_path),
+            "bytes": report_path.stat().st_size,
+        },
+    },
+}
+artifact_manifest_path = COLAB_OUTPUT_DIR / "evaluation-manifest.json"
+artifact_manifest_path.write_text(
+    json.dumps(artifact_manifest, indent=2, sort_keys=True) + "\\n"
+)
+if STAGING_REPO_ID:
+    from huggingface_hub import CommitOperationAdd, HfApi
+
+    api = HfApi(token=HF_TOKEN)
+    current_head = api.repo_info(
+        repo_id=STAGING_REPO_ID,
+        repo_type="model",
+    ).sha
+    evidence_path = f"runs/{RUN_ID}/evaluation"
+    operations = [
+        CommitOperationAdd(
+            path_in_repo=f"{evidence_path}/{path.name}",
+            path_or_fileobj=str(path),
+        )
+        for path in (
+            base_prediction_path,
+            adapted_prediction_path,
+            report_path,
+            artifact_manifest_path,
+        )
+    ]
+    commit = api.create_commit(
+        repo_id=STAGING_REPO_ID,
+        repo_type="model",
+        operations=operations,
+        commit_message=f"Upload private Colab evaluation evidence for {RUN_ID}",
+        parent_commit=current_head,
+    )
+    print("private evaluation revision:", commit.oid)
 print(json.dumps(report, indent=2, sort_keys=True))
 print("saved:", COLAB_OUTPUT_DIR)
 """.splitlines(keepends=True)
     ]
     cells[10]["source"] = [
         line
-        for line in """Download both prediction JSONL files from the Colab file browser. The
-repository's CPU-only evaluator validates the complete output schema and re-executes every proposed
-reward patch.
+        for line in """When private staging is configured, the notebook uploads both prediction
+JSONL files and their hash manifest to the private repository. Otherwise download them from the
+Colab file browser. The repository's CPU-only evaluator validates the complete output schema and
+re-executes every proposed reward patch.
 This Colab notebook performs only the GPU-heavy base and adapter inference over the exact same 640
 held-out examples.
 """.splitlines(keepends=True)
@@ -243,6 +342,9 @@ held-out examples.
         DEFAULT_BASE_MODEL_ID: base_model_id,
         DEFAULT_RUN_ID: run_id,
         DEFAULT_ARCHIVE_NAME: archive_name,
+        STAGING_REPO_PLACEHOLDER: staging_repo_id or "",
+        STAGING_REVISION_PLACEHOLDER: staging_revision or "",
+        STAGING_ADAPTER_PATH_PLACEHOLDER: staging_adapter_path or "",
     }
     for cell in cells:
         source = "".join(cell["source"])
@@ -264,6 +366,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-model-id", default=DEFAULT_BASE_MODEL_ID)
     parser.add_argument("--run-id", default=DEFAULT_RUN_ID)
     parser.add_argument("--archive-name", default=DEFAULT_ARCHIVE_NAME)
+    parser.add_argument("--staging-repo-id")
+    parser.add_argument("--staging-revision")
+    parser.add_argument("--staging-adapter-path")
+    parser.add_argument("--max-examples", type=int)
+    parser.add_argument("--max-new-tokens", type=int, default=768)
+    parser.add_argument("--batch-size", type=int, default=1)
     return parser.parse_args()
 
 
@@ -277,6 +385,12 @@ def main() -> None:
                 base_model_id=args.base_model_id,
                 run_id=args.run_id,
                 archive_name=args.archive_name,
+                staging_repo_id=args.staging_repo_id,
+                staging_revision=args.staging_revision,
+                staging_adapter_path=args.staging_adapter_path,
+                max_examples=args.max_examples,
+                max_new_tokens=args.max_new_tokens,
+                batch_size=args.batch_size,
             ),
             indent=2,
             ensure_ascii=False,

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
+from scripts import continue_kaggle_notebook
 from scripts.build_colab_notebook import colab_notebook
 from scripts.build_kaggle_notebook import notebook
 from scripts.continue_kaggle_notebook import (
+    await_kernel_completion,
     await_verified_model_release,
+    parse_kernel_status,
     update_private_manifest,
 )
 from scripts.prepare_kaggle_notebook import prepare_kaggle_notebook
@@ -59,8 +63,12 @@ def test_kaggle_release_declares_exact_adapted_dataset_and_model(
     assert (output / "kernel-metadata.json").is_file()
 
 
-def test_colab_notebook_uses_public_huggingface_artifacts() -> None:
-    value = colab_notebook()
+def test_colab_notebook_uses_private_commit_pinned_huggingface_staging() -> None:
+    value = colab_notebook(
+        staging_repo_id="owner/private-eval-staging",
+        staging_revision="a" * 40,
+        staging_adapter_path="runs/qwen-run/adapter",
+    )
     rendered = "\n".join(
         "".join(cell["source"])
         for cell in value["cells"]
@@ -70,12 +78,19 @@ def test_colab_notebook_uses_public_huggingface_artifacts() -> None:
     assert "KuanKuanKuan/falsifyrl-autoscientist" in rendered
     assert "hf_hub_download" in rendered
     assert "snapshot_download" in rendered
-    assert "falsifyrl-autoscientist-current-checkpoint.tar.zst" in rendered
-    assert 'drive.mount("/content/drive")' in rendered
+    assert "owner/private-eval-staging" in rendered
+    assert "a" * 40 in rendered
+    assert "runs/qwen-run/adapter" in rendered
+    assert 'drive.mount("/content/drive")' not in rendered
     assert 'userdata.get("HF_TOKEN")' in rendered
     assert '"Qwen/Qwen3.5-9B"' in rendered
-    assert "/content/drive/MyDrive/FalsifyRL/evaluation" in rendered
+    assert "/content/FalsifyRL/evaluation" in rendered
     assert "2f10c842-c124-407b-89c0-f4af5a761bb4" in rendered
+    assert "checkpoint-manifest.json" in rendered
+    assert "evaluation-manifest.json" in rendered
+    assert "parent_commit=current_head" in rendered
+    assert "CommitOperationAdd" in rendered
+    assert "%pip uninstall -q -y torchao" in rendered
     assert "/kaggle/" not in rendered
 
 
@@ -84,12 +99,17 @@ def test_colab_notebook_can_pin_a_backup_run() -> None:
         base_model_id="meta-llama/Llama-3.2-3B-Instruct",
         run_id="llama-run",
         archive_name="llama-checkpoint.tar.zst",
+        staging_repo_id="owner/private-stage",
+        staging_revision="b" * 40,
+        staging_adapter_path="runs/llama-run/adapter",
     )
     rendered = "\n".join("".join(cell["source"]) for cell in value["cells"])
 
     assert "meta-llama/Llama-3.2-3B-Instruct" in rendered
     assert "llama-run" in rendered
-    assert "llama-checkpoint.tar.zst" in rendered
+    assert "owner/private-stage" in rendered
+    assert "b" * 40 in rendered
+    assert "runs/llama-run/adapter" in rendered
     assert '"Qwen/Qwen3.5-9B"' not in rendered
 
 
@@ -126,3 +146,28 @@ def test_kaggle_run_waits_for_hash_verified_model_release(tmp_path: Path) -> Non
     assert updated["links"]["kaggle_notebook"].endswith(
         "falsifyrl-held-out-evaluation"
     )
+
+
+def test_kaggle_kernel_status_is_polled_until_complete(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    statuses = iter(("Kernel status: running", "Kernel status: complete"))
+
+    def fake_run(command, *, cwd):
+        return subprocess.CompletedProcess(command, 0, next(statuses), "")
+
+    monkeypatch.setattr(continue_kaggle_notebook, "_run", fake_run)
+    monkeypatch.setattr(continue_kaggle_notebook.time, "sleep", lambda _: None)
+
+    completed = await_kernel_completion(
+        kaggle_cli=tmp_path / "kaggle.exe",
+        kernel_handle="owner/kernel",
+        repository=tmp_path,
+        poll_seconds=0,
+        timeout_seconds=1,
+    )
+
+    assert parse_kernel_status(completed.stdout) == "complete"
+    assert parse_kernel_status("Kernel status: failed") == "failed"
+    assert parse_kernel_status("unexpected output") == "unknown"

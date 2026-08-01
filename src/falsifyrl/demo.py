@@ -98,6 +98,12 @@ def prepare_space_bundle(
     template = Path(template_dir)
     destination = Path(bundle_dir)
     destination.mkdir(parents=True, exist_ok=True)
+    expected_files = {"README.md", "app.py", "requirements.txt", "examples.json"}
+    unexpected = sorted(
+        child.name for child in destination.iterdir() if child.name not in expected_files
+    )
+    if unexpected:
+        raise ValueError(f"Space bundle destination contains stale files: {unexpected}")
     for filename in ("README.md", "app.py", "requirements.txt"):
         source = template / filename
         if not source.is_file():

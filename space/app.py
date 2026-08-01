@@ -104,29 +104,63 @@ def get_runner():
         return None
     import torch
     from peft import PeftModel
-    from transformers import AutoModelForMultimodalLM, AutoProcessor
-
-    processor = AutoProcessor.from_pretrained(BASE_MODEL_ID)
-    base = AutoModelForMultimodalLM.from_pretrained(
-        BASE_MODEL_ID,
-        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-        device_map="auto",
+    from transformers import (
+        AutoModelForCausalLM,
+        AutoModelForMultimodalLM,
+        AutoTokenizer,
     )
-    model = PeftModel.from_pretrained(base, MODEL_REPO_ID)
+
+    token = os.environ.get("HF_TOKEN")
+    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_ID, token=token)
+    tokenizer.padding_side = "left"
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    model_arguments = {
+        "token": token,
+        "torch_dtype": (
+            torch.bfloat16
+            if torch.cuda.is_available() and torch.cuda.is_bf16_supported()
+            else torch.float16 if torch.cuda.is_available() else torch.float32
+        ),
+        "device_map": "auto",
+        "low_cpu_mem_usage": True,
+    }
+    try:
+        base = AutoModelForCausalLM.from_pretrained(
+            BASE_MODEL_ID,
+            **model_arguments,
+        )
+    except (TypeError, ValueError):
+        base = AutoModelForMultimodalLM.from_pretrained(
+            BASE_MODEL_ID,
+            **model_arguments,
+        )
+    model = PeftModel.from_pretrained(base, MODEL_REPO_ID, token=token)
     model.eval()
-    _runner = (processor, model)
+    _runner = (tokenizer, model)
     return _runner
 
 
 def extract_json(text: str) -> dict:
-    start = text.find("{")
-    end = text.rfind("}")
-    if start < 0 or end < start:
-        return {"error": "Model output did not contain a JSON object.", "raw": text}
-    try:
-        return json.loads(text[start : end + 1])
-    except json.JSONDecodeError as error:
-        return {"error": str(error), "raw": text}
+    decoder = json.JSONDecoder()
+    candidates: list[dict] = []
+    for index, character in enumerate(text):
+        if character != "{":
+            continue
+        try:
+            value, _ = decoder.raw_decode(text, index)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            candidates.append(value)
+    preferred = [
+        value
+        for value in candidates
+        if {"verdict", "failure_type"}.issubset(value)
+    ]
+    if preferred or candidates:
+        return (preferred or candidates)[-1]
+    return {"error": "Model output did not contain a JSON object.", "raw": text}
 
 
 def run_critic(example_id: str):
@@ -139,27 +173,21 @@ def run_critic(example_id: str):
                 "but is not presented as a model prediction."
             ),
         }
-    processor, model = runner
+    tokenizer, model = runner
     prompt = BY_ID[example_id]["prompt"]
-    inputs = processor.apply_chat_template(
-        [
-            {
-                "role": "user",
-                "content": [{"type": "text", "text": prompt}],
-            }
-        ],
-        tokenize=True,
+    formatted = tokenizer.apply_chat_template(
+        [{"role": "user", "content": prompt}],
+        tokenize=False,
         add_generation_prompt=True,
-        return_dict=True,
-        return_tensors="pt",
-    ).to(model.device)
+    )
+    inputs = tokenizer(formatted, return_tensors="pt").to(model.device)
     output = model.generate(
         **inputs,
         max_new_tokens=512,
         do_sample=False,
-        pad_token_id=processor.tokenizer.eos_token_id,
+        pad_token_id=tokenizer.eos_token_id,
     )
-    generated = processor.decode(
+    generated = tokenizer.decode(
         output[0, inputs["input_ids"].shape[1] :],
         skip_special_tokens=True,
     )

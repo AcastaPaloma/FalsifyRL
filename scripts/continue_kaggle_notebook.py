@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -64,6 +65,65 @@ def update_private_manifest(manifest_path: Path, notebook_url: str) -> None:
         encoding="utf-8",
     )
     temporary.replace(manifest_path)
+
+
+def parse_kernel_status(output: str) -> str:
+    normalized = output.lower()
+    match = re.search(
+        r"\b(?:kernel\s+)?status\s*[:=]?\s*[\"']?"
+        r"(complete|running|queued|pending|error|failed|cancelled|canceled)",
+        normalized,
+    )
+    if match:
+        return match.group(1)
+    for candidate in (
+        "complete",
+        "running",
+        "queued",
+        "pending",
+        "error",
+        "failed",
+        "cancelled",
+        "canceled",
+    ):
+        if normalized.strip() == candidate:
+            return candidate
+    return "unknown"
+
+
+def await_kernel_completion(
+    *,
+    kaggle_cli: Path,
+    kernel_handle: str,
+    repository: Path,
+    poll_seconds: float,
+    timeout_seconds: float,
+) -> subprocess.CompletedProcess[str]:
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        completed = _run(
+            [
+                str(kaggle_cli.resolve()),
+                "kernels",
+                "status",
+                kernel_handle,
+            ],
+            cwd=repository,
+        )
+        status = parse_kernel_status(completed.stdout + "\n" + completed.stderr)
+        if status == "complete":
+            return completed
+        if status in {"error", "failed", "cancelled", "canceled"}:
+            raise RuntimeError(
+                f"Kaggle notebook ended with terminal status {status}: "
+                f"{completed.stdout.strip()}"
+            )
+        if time.monotonic() >= deadline:
+            raise TimeoutError(
+                f"Kaggle notebook timed out with status {status}: "
+                f"{completed.stdout.strip()}"
+            )
+        time.sleep(poll_seconds)
 
 
 def parse_args() -> argparse.Namespace:
@@ -156,17 +216,13 @@ def main() -> None:
         ],
         cwd=repository,
     )
-    status = _run(
-        [
-            str(args.kaggle_cli.resolve()),
-            "kernels",
-            "status",
-            kernel_handle,
-        ],
-        cwd=repository,
+    await_kernel_completion(
+        kaggle_cli=args.kaggle_cli,
+        kernel_handle=kernel_handle,
+        repository=repository,
+        poll_seconds=args.poll_seconds,
+        timeout_seconds=args.timeout_seconds,
     )
-    if "complete" not in status.stdout.lower():
-        raise RuntimeError(f"Kaggle notebook did not complete: {status.stdout.strip()}")
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     _run(

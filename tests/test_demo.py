@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from falsifyrl.demo import (
     parse_prompt_sections,
     prepare_space_bundle,
@@ -94,6 +96,24 @@ def test_space_bundle_contains_no_training_metadata_beyond_examples(
     assert (tmp_path / "bundle" / "examples.json").is_file()
 
 
+def test_space_bundle_rejects_stale_unexpected_files(tmp_path: Path) -> None:
+    template = tmp_path / "space"
+    template.mkdir()
+    for filename in ("README.md", "app.py", "requirements.txt"):
+        (template / filename).write_text(filename, encoding="utf-8")
+    dataset = tmp_path / "test.jsonl"
+    dataset.write_text(
+        json.dumps(_record("a", "none", "control")) + "\n",
+        encoding="utf-8",
+    )
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "stale-secret.txt").write_text("stale", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="stale files"):
+        prepare_space_bundle(template, dataset, bundle)
+
+
 def test_space_source_has_valid_unicode_and_oracle_summary() -> None:
     app = Path("space/app.py").read_text(encoding="utf-8")
     card = Path("space/README.md").read_text(encoding="utf-8")
@@ -102,6 +122,10 @@ def test_space_source_has_valid_unicode_and_oracle_summary() -> None:
     assert "⚠️ Counterexample trace" in app
     assert "Independent task oracle" in app
     assert 'api_name="run_critic"' in app
+    assert "AutoModelForCausalLM" in app
+    assert "AutoModelForMultimodalLM" in app
+    assert "AutoTokenizer" in app
+    assert 'os.environ.get("HF_TOKEN")' in app
     assert "emoji: 🔬" in card
     assert not any(marker in app + card for marker in ("â", "ð", "Â", "ï"))
 
