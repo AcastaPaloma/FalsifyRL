@@ -429,6 +429,7 @@ def publish_kaggle_model(
     owner: str,
     slug: str = "falsifyrl-autoscientist",
     variation: str = "lora",
+    license_name: str | None = "Apache 2.0",
 ) -> str:
     try:
         import kagglehub
@@ -442,7 +443,7 @@ def publish_kaggle_model(
     kagglehub.model_upload(
         handle,
         str(bundle_dir),
-        license_name="Apache 2.0",
+        license_name=license_name,
         version_notes="Best FalsifyRL AutoScientist LoRA checkpoint",
     )
     set_kaggle_model_public(

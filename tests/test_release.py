@@ -24,7 +24,10 @@ from scripts.continue_dataset_release import await_audited_export
 from scripts.continue_dataset_release import (
     update_private_manifest as update_dataset_manifest,
 )
-from scripts.continue_model_release import await_passing_evaluation
+from scripts.continue_model_release import (
+    await_passing_evaluation,
+    validate_model_release_configuration,
+)
 from scripts.continue_model_release import (
     update_private_manifest as update_model_manifest,
 )
@@ -32,6 +35,25 @@ from scripts.continue_model_release import (
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_llama_release_configuration_fails_closed_on_apache_defaults() -> None:
+    with pytest.raises(ValueError, match="slug must begin"):
+        validate_model_release_configuration(
+            base_model_id="meta-llama/Llama-3.2-3B-Instruct",
+            model_slug="falsifyrl-autoscientist",
+            model_card_template=Path("release/model/README.md"),
+            model_license_file=Path("release/model/LICENSE"),
+            kaggle_license_name="Apache 2.0",
+        )
+
+    validate_model_release_configuration(
+        base_model_id="meta-llama/Llama-3.2-3B-Instruct",
+        model_slug="Llama-FalsifyRL-AutoScientist",
+        model_card_template=Path("release/model/README.llama3.2.md"),
+        model_license_file=Path("outputs/licenses/Llama-3.2-LICENSE.txt"),
+        kaggle_license_name=None,
+    )
 
 
 def _fake_dataset(source: Path) -> None:

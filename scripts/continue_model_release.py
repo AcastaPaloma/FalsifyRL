@@ -133,6 +133,26 @@ def update_private_manifest(
     temporary.replace(manifest_path)
 
 
+def validate_model_release_configuration(
+    *,
+    base_model_id: str,
+    model_slug: str,
+    model_card_template: Path,
+    model_license_file: Path,
+    kaggle_license_name: str | None,
+) -> None:
+    if not base_model_id.casefold().startswith("meta-llama/"):
+        return
+    if not model_slug.casefold().startswith("llama"):
+        raise ValueError("a Llama-derived release slug must begin with 'Llama'")
+    if model_card_template == Path("release/model/README.md"):
+        raise ValueError("Llama release requires the Llama-specific model card")
+    if model_license_file == Path("release/model/LICENSE"):
+        raise ValueError("Llama release requires the Meta community license file")
+    if kaggle_license_name == "Apache 2.0":
+        raise ValueError("Llama release cannot use Apache 2.0 Kaggle metadata")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -184,6 +204,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--kaggle-owner")
     parser.add_argument("--model-slug", default="falsifyrl-autoscientist")
     parser.add_argument("--space-slug", default="falsifyrl")
+    parser.add_argument(
+        "--model-card-template",
+        type=Path,
+        default=Path("release/model/README.md"),
+    )
+    parser.add_argument(
+        "--model-license-file",
+        type=Path,
+        default=Path("release/model/LICENSE"),
+    )
+    parser.add_argument("--kaggle-license-name", default="Apache 2.0")
     parser.add_argument("--poll-seconds", type=float, default=30.0)
     parser.add_argument("--timeout-seconds", type=float, default=172_800.0)
     return parser.parse_args()
@@ -222,6 +253,14 @@ def main() -> None:
         adapter_config_candidates[0].read_text(encoding="utf-8")
     )
     base_model_id = str(adapter_config["base_model_name_or_path"])
+    kaggle_license_name = args.kaggle_license_name or None
+    validate_model_release_configuration(
+        base_model_id=base_model_id,
+        model_slug=args.model_slug,
+        model_card_template=args.model_card_template,
+        model_license_file=args.model_license_file,
+        kaggle_license_name=kaggle_license_name,
+    )
 
     model_manifest = prepare_model_bundle(
         args.checkpoint,
@@ -231,6 +270,8 @@ def main() -> None:
         autoscientist_run_id=str(state.autoscientist_run_id),
         best_win_rate=float(state.best_win_rate),
         evaluation_report=args.comparison,
+        model_card_template=args.model_card_template,
+        license_path=args.model_license_file,
     )
     expected_sha256 = model_manifest["files"]["adapter_model.safetensors"]["sha256"]
     huggingface_model_url = publish_huggingface_model(
@@ -242,6 +283,7 @@ def main() -> None:
         args.model_bundle,
         owner=kaggle_owner,
         slug=args.model_slug,
+        license_name=kaggle_license_name,
     )
     verify_anonymous_public_page(
         kaggle_model_url,
