@@ -13,9 +13,29 @@ T = TypeVar("T")
 
 
 def extract_json_object(text: str) -> str:
-    start = text.find("{")
-    end = text.rfind("}")
-    return text[start : end + 1] if start >= 0 and end >= start else text.strip()
+    decoder = json.JSONDecoder()
+    candidates: list[dict] = []
+    for index, character in enumerate(text):
+        if character != "{":
+            continue
+        try:
+            value, _ = decoder.raw_decode(text, index)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            candidates.append(value)
+    preferred = [
+        value
+        for value in candidates
+        if {"verdict", "failure_type"}.issubset(value)
+    ]
+    if preferred or candidates:
+        return json.dumps(
+            (preferred or candidates)[-1],
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+    return text.strip()
 
 
 def batches(values: Sequence[T], size: int) -> Iterator[Sequence[T]]:
@@ -80,17 +100,24 @@ def main() -> None:
     token = os.environ.get("HF_TOKEN")
     tokenizer = AutoTokenizer.from_pretrained(args.model_id, token=token)
     tokenizer.padding_side = "left"
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
     model_arguments = {
         "token": token,
-        "torch_dtype": torch.float16 if torch.cuda.is_available() else torch.float32,
+        "torch_dtype": (
+            torch.bfloat16
+            if torch.cuda.is_available() and torch.cuda.is_bf16_supported()
+            else torch.float16 if torch.cuda.is_available() else torch.float32
+        ),
         "device_map": "auto",
+        "low_cpu_mem_usage": True,
     }
     try:
         model = AutoModelForCausalLM.from_pretrained(
             args.model_id,
             **model_arguments,
         )
-    except ValueError:
+    except (TypeError, ValueError):
         model = AutoModelForMultimodalLM.from_pretrained(
             args.model_id,
             **model_arguments,

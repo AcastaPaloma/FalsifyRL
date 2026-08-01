@@ -17,6 +17,10 @@ def test_extract_json_object_strips_model_wrapping_text() -> None:
         '{"verdict":"aligned"}'
     )
     assert extract_json_object("not json") == "not json"
+    assert extract_json_object(
+        'thinking {"note":"intermediate"} final '
+        '{"failure_type":"none","verdict":"aligned"}'
+    ) == '{"failure_type":"none","verdict":"aligned"}'
 
 
 def test_batches_preserves_order_and_rejects_invalid_size() -> None:

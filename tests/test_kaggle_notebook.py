@@ -24,8 +24,9 @@ def test_kaggle_notebook_contains_reproducibility_contract() -> None:
     assert "assert len(rows) == 640" in rendered
     assert "adapter_config.json" in rendered
     assert "AutoModelForMultimodalLM" in rendered
-    assert "AutoProcessor" in rendered
-    assert 'content": [{"type": "text"' in rendered
+    assert "AutoModelForCausalLM" in rendered
+    assert "AutoTokenizer" in rendered
+    assert '"role": "user", "content": prompt' in rendered
     assert "FALSIFYRL_MAX_EXAMPLES" in rendered
     assert "falsifyrl-base-test-predictions.jsonl" in rendered
     assert "falsifyrl-adapted-test-predictions.jsonl" in rendered
@@ -33,8 +34,9 @@ def test_kaggle_notebook_contains_reproducibility_contract() -> None:
     assert '"adapted_metrics": adapted_metrics' in rendered
     assert '"improvement"' in rendered
     assert "executable-patch metric" in rendered
-    assert 'FALSIFYRL_BATCH_SIZE", 32' in rendered
-    assert "processor.batch_decode" in rendered
+    assert 'FALSIFYRL_BATCH_SIZE", 1' in rendered
+    assert "FALSIFYRL_MAX_NEW_TOKENS" in rendered
+    assert "tokenizer.batch_decode" in rendered
 
 
 def test_kaggle_release_declares_exact_adapted_dataset_and_model(
@@ -68,6 +70,12 @@ def test_colab_notebook_uses_public_huggingface_artifacts() -> None:
     assert "KuanKuanKuan/falsifyrl-autoscientist" in rendered
     assert "hf_hub_download" in rendered
     assert "snapshot_download" in rendered
+    assert "falsifyrl-autoscientist-current-checkpoint.tar.zst" in rendered
+    assert 'drive.mount("/content/drive")' in rendered
+    assert 'userdata.get("HF_TOKEN")' in rendered
+    assert '"Qwen/Qwen3.5-9B"' in rendered
+    assert "/content/drive/MyDrive/FalsifyRL/evaluation" in rendered
+    assert "2f10c842-c124-407b-89c0-f4af5a761bb4" in rendered
     assert "/kaggle/" not in rendered
 
 

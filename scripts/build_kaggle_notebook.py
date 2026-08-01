@@ -162,7 +162,7 @@ base model selected by AutoScientist.
             """
 import torch
 from peft import PeftModel
-from transformers import AutoModelForMultimodalLM, AutoProcessor
+from transformers import AutoModelForCausalLM, AutoModelForMultimodalLM, AutoTokenizer
 
 adapter_candidates = list(INPUT_ROOT.rglob("adapter_config.json"))
 assert adapter_candidates, "Attach the public FalsifyRL Kaggle Model"
@@ -172,50 +172,77 @@ BASE_MODEL_ID = adapter_config["base_model_name_or_path"]
 print("adapter:", ADAPTER_DIR)
 print("base model:", BASE_MODEL_ID)
 
-processor = AutoProcessor.from_pretrained(BASE_MODEL_ID)
-processor.tokenizer.padding_side = "left"
-base_model = AutoModelForMultimodalLM.from_pretrained(
-    BASE_MODEL_ID,
-    torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-    device_map="auto",
-)
+tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_ID)
+tokenizer.padding_side = "left"
+if tokenizer.pad_token_id is None:
+    tokenizer.pad_token = tokenizer.eos_token
+model_kwargs = {
+    "torch_dtype": (
+        torch.bfloat16
+        if torch.cuda.is_available() and torch.cuda.is_bf16_supported()
+        else torch.float16 if torch.cuda.is_available() else torch.float32
+    ),
+    "device_map": "auto",
+    "low_cpu_mem_usage": True,
+}
+try:
+    base_model = AutoModelForCausalLM.from_pretrained(BASE_MODEL_ID, **model_kwargs)
+except (TypeError, ValueError):
+    base_model = AutoModelForMultimodalLM.from_pretrained(BASE_MODEL_ID, **model_kwargs)
 base_model.eval()
 """
         ),
         _code(
             """
 def extract_json(text):
-    start, end = text.find("{"), text.rfind("}")
-    return text[start:end + 1] if start >= 0 and end >= start else text
+    decoder = json.JSONDecoder()
+    candidates = []
+    for index, character in enumerate(text):
+        if character != "{":
+            continue
+        try:
+            value, _ = decoder.raw_decode(text, index)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            candidates.append(value)
+    preferred = [
+        value for value in candidates
+        if {"verdict", "failure_type"}.issubset(value)
+    ]
+    if preferred or candidates:
+        return json.dumps(
+            (preferred or candidates)[-1],
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+    return text.strip()
 
 def predict(model, prompts, batch_size):
     predictions = []
     for start in range(0, len(prompts), batch_size):
         prompt_batch = prompts[start:start + batch_size]
         formatted = [
-            processor.apply_chat_template(
-                [{
-                    "role": "user",
-                    "content": [{"type": "text", "text": prompt}],
-                }],
+            tokenizer.apply_chat_template(
+                [{"role": "user", "content": prompt}],
                 tokenize=False,
                 add_generation_prompt=True,
             )
             for prompt in prompt_batch
         ]
-        inputs = processor(
-            text=formatted,
+        inputs = tokenizer(
+            formatted,
             padding=True,
             return_tensors="pt",
         ).to(model.device)
         with torch.inference_mode():
             outputs = model.generate(
                 **inputs,
-                max_new_tokens=256,
+                max_new_tokens=int(os.environ.get("FALSIFYRL_MAX_NEW_TOKENS", 768)),
                 do_sample=False,
-                pad_token_id=processor.tokenizer.eos_token_id,
+                pad_token_id=tokenizer.eos_token_id,
             )
-        generated = processor.batch_decode(
+        generated = tokenizer.batch_decode(
             outputs[:, inputs["input_ids"].shape[1]:],
             skip_special_tokens=True,
         )
@@ -224,7 +251,7 @@ def predict(model, prompts, batch_size):
     return predictions
 
 MAX_EXAMPLES = int(os.environ.get("FALSIFYRL_MAX_EXAMPLES", len(rows)))
-BATCH_SIZE = int(os.environ.get("FALSIFYRL_BATCH_SIZE", 32))
+BATCH_SIZE = int(os.environ.get("FALSIFYRL_BATCH_SIZE", 1))
 prompts = [row["prompt"] for row in rows[:MAX_EXAMPLES]]
 base_predictions = predict(base_model, prompts, BATCH_SIZE)
 base_metrics = compact_metrics(base_predictions)
