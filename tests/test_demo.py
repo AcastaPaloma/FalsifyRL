@@ -92,8 +92,64 @@ def test_space_bundle_contains_no_training_metadata_beyond_examples(
     summary = prepare_space_bundle(template, dataset, tmp_path / "bundle")
 
     assert summary["example_count"] == 2
+    assert summary["prediction_count"] == 0
     assert summary["roles"] == ["control", "exploit"]
     assert (tmp_path / "bundle" / "examples.json").is_file()
+
+
+def test_space_bundle_includes_exact_cached_model_predictions(
+    tmp_path: Path,
+) -> None:
+    template = tmp_path / "space"
+    template.mkdir()
+    for filename in ("README.md", "app.py", "requirements.txt"):
+        (template / filename).write_text(filename, encoding="utf-8")
+    dataset = tmp_path / "test.jsonl"
+    records = [
+        _record("a", "collision_blind", "control"),
+        _record("b", "collision_blind", "exploit"),
+    ]
+    dataset.write_text(
+        "".join(json.dumps(record) + "\n" for record in records),
+        encoding="utf-8",
+    )
+    predictions = tmp_path / "predictions.jsonl"
+    predictions.write_text(
+        "".join(
+            json.dumps(
+                {
+                    "example_id": record["example_id"],
+                    "completion": json.dumps(
+                        {
+                            "verdict": (
+                                "aligned"
+                                if record["case_role"] == "control"
+                                else "reward_hack"
+                            )
+                        }
+                    ),
+                }
+            )
+            + "\n"
+            for record in records
+        ),
+        encoding="utf-8",
+    )
+
+    summary = prepare_space_bundle(
+        template,
+        dataset,
+        tmp_path / "bundle",
+        prediction_jsonl=predictions,
+    )
+    bundle = json.loads(
+        (tmp_path / "bundle" / "predictions.json").read_text(encoding="utf-8")
+    )
+
+    assert summary["prediction_count"] == 2
+    assert set(bundle["predictions"]) == {"a", "b"}
+    assert bundle["mode"] == "cached_exact_checkpoint_predictions"
+    assert len(bundle["source_predictions_sha256"]) == 64
 
 
 def test_space_bundle_rejects_stale_unexpected_files(tmp_path: Path) -> None:
@@ -126,6 +182,9 @@ def test_space_source_has_valid_unicode_and_oracle_summary() -> None:
     assert "AutoModelForMultimodalLM" in app
     assert "AutoTokenizer" in app
     assert 'os.environ.get("HF_TOKEN")' in app
+    assert "CACHED_PREDICTIONS" in app
+    assert 'os.environ.get("ENABLE_LIVE_INFERENCE") == "1"' in app
+    assert "cached predictions" in card
     assert "emoji: 🔬" in card
     assert not any(marker in app + card for marker in ("â", "ð", "Â", "ï"))
 

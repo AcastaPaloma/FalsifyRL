@@ -175,6 +175,11 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=Path("outputs/falsifyrl_seed_v1/test.jsonl"),
     )
+    parser.add_argument(
+        "--model-predictions",
+        type=Path,
+        default=Path("outputs/evaluation/falsifyrl-adapted-test-predictions.jsonl"),
+    )
     parser.add_argument("--huggingface-owner")
     parser.add_argument("--kaggle-owner")
     parser.add_argument("--model-slug", default="falsifyrl-autoscientist")
@@ -200,6 +205,12 @@ def main() -> None:
         timeout_seconds=args.timeout_seconds,
     )
     dataset_repo_id = f"{huggingface_owner}/falsifyrl-adapted"
+    prepare_space_bundle(
+        "space",
+        args.test_jsonl,
+        args.space_bundle,
+        prediction_jsonl=args.model_predictions,
+    )
     adapter_config_candidates = list(
         Path("outputs/autoscientist/extracted-checkpoint").rglob(
             "adapter_config.json"
@@ -254,7 +265,6 @@ def main() -> None:
         encoding="utf-8",
     )
 
-    prepare_space_bundle("space", args.test_jsonl, args.space_bundle)
     space_url = publish_huggingface_space(
         args.space_bundle,
         owner=huggingface_owner,

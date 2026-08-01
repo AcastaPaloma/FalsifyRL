@@ -8,8 +8,16 @@ import gradio as gr
 
 EXAMPLES = json.loads(Path("examples.json").read_text(encoding="utf-8"))
 BY_ID = {example["example_id"]: example for example in EXAMPLES}
+PREDICTION_PATH = Path("predictions.json")
+PREDICTION_BUNDLE = (
+    json.loads(PREDICTION_PATH.read_text(encoding="utf-8"))
+    if PREDICTION_PATH.is_file()
+    else {"predictions": {}}
+)
+CACHED_PREDICTIONS = PREDICTION_BUNDLE.get("predictions", {})
 MODEL_REPO_ID = os.environ.get("MODEL_REPO_ID")
 BASE_MODEL_ID = os.environ.get("BASE_MODEL_ID")
+ENABLE_LIVE_INFERENCE = os.environ.get("ENABLE_LIVE_INFERENCE") == "1"
 _runner = None
 
 CSS = """
@@ -91,7 +99,7 @@ def load_example(example_id: str):
         sections["task"],
         sections["reward"],
         gr.Dataframe(headers=headers, value=rows),
-        {},
+        CACHED_PREDICTIONS.get(example_id, {}),
         json.loads(example["gold_completion"]),
     )
 
@@ -100,7 +108,7 @@ def get_runner():
     global _runner
     if _runner is not None:
         return _runner
-    if not MODEL_REPO_ID or not BASE_MODEL_ID:
+    if not ENABLE_LIVE_INFERENCE or not MODEL_REPO_ID or not BASE_MODEL_ID:
         return None
     import torch
     from peft import PeftModel
@@ -164,6 +172,8 @@ def extract_json(text: str) -> dict:
 
 
 def run_critic(example_id: str):
+    if example_id in CACHED_PREDICTIONS:
+        return CACHED_PREDICTIONS[example_id]
     runner = get_runner()
     if runner is None:
         return {

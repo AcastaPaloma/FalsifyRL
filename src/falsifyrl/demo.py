@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 from pathlib import Path
@@ -94,11 +95,19 @@ def prepare_space_bundle(
     template_dir: str | Path,
     dataset_jsonl: str | Path,
     bundle_dir: str | Path,
+    *,
+    prediction_jsonl: str | Path | None = None,
 ) -> dict[str, Any]:
     template = Path(template_dir)
     destination = Path(bundle_dir)
     destination.mkdir(parents=True, exist_ok=True)
-    expected_files = {"README.md", "app.py", "requirements.txt", "examples.json"}
+    expected_files = {
+        "README.md",
+        "app.py",
+        "requirements.txt",
+        "examples.json",
+        "predictions.json",
+    }
     unexpected = sorted(
         child.name for child in destination.iterdir() if child.name not in expected_files
     )
@@ -115,8 +124,46 @@ def prepare_space_bundle(
         json.dumps(examples, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+    prediction_count = 0
+    if prediction_jsonl is not None:
+        prediction_path = Path(prediction_jsonl)
+        if not prediction_path.is_file():
+            raise FileNotFoundError(prediction_path)
+        predictions: dict[str, dict[str, Any]] = {}
+        with prediction_path.open(encoding="utf-8") as stream:
+            for line in stream:
+                row = json.loads(line)
+                completion = json.loads(row["completion"])
+                if not isinstance(completion, dict):
+                    raise ValueError("Space prediction completion must be an object")
+                example_id = str(row["example_id"])
+                if example_id in predictions:
+                    raise ValueError(f"duplicate Space prediction: {example_id}")
+                predictions[example_id] = completion
+        selected_ids = {str(example["example_id"]) for example in examples}
+        missing = sorted(selected_ids - set(predictions))
+        if missing:
+            raise ValueError(
+                f"model predictions are missing selected Space examples: {missing}"
+            )
+        digest = hashlib.sha256(prediction_path.read_bytes()).hexdigest()
+        prediction_bundle = {
+            "schema_version": 1,
+            "mode": "cached_exact_checkpoint_predictions",
+            "source_predictions_sha256": digest,
+            "predictions": {
+                example_id: predictions[example_id]
+                for example_id in sorted(selected_ids)
+            },
+        }
+        (destination / "predictions.json").write_text(
+            json.dumps(prediction_bundle, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        prediction_count = len(selected_ids)
     return {
         "example_count": len(examples),
+        "prediction_count": prediction_count,
         "roles": sorted({example["case_role"] for example in examples}),
         "failure_types": sorted(
             {example["failure_type"] for example in examples}
