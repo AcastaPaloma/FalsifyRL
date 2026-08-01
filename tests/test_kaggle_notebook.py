@@ -79,6 +79,20 @@ def test_colab_notebook_uses_public_huggingface_artifacts() -> None:
     assert "/kaggle/" not in rendered
 
 
+def test_colab_notebook_can_pin_a_backup_run() -> None:
+    value = colab_notebook(
+        base_model_id="meta-llama/Llama-3.2-3B-Instruct",
+        run_id="llama-run",
+        archive_name="llama-checkpoint.tar.zst",
+    )
+    rendered = "\n".join("".join(cell["source"]) for cell in value["cells"])
+
+    assert "meta-llama/Llama-3.2-3B-Instruct" in rendered
+    assert "llama-run" in rendered
+    assert "llama-checkpoint.tar.zst" in rendered
+    assert '"Qwen/Qwen3.5-9B"' not in rendered
+
+
 def test_kaggle_run_waits_for_hash_verified_model_release(tmp_path: Path) -> None:
     manifest_path = tmp_path / "manifest.json"
     manifest_path.write_text(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 
@@ -9,7 +10,17 @@ else:
     from build_kaggle_notebook import notebook
 
 
-def colab_notebook() -> dict:
+DEFAULT_BASE_MODEL_ID = "Qwen/Qwen3.5-9B"
+DEFAULT_RUN_ID = "2f10c842-c124-407b-89c0-f4af5a761bb4"
+DEFAULT_ARCHIVE_NAME = "falsifyrl-autoscientist-current-checkpoint.tar.zst"
+
+
+def colab_notebook(
+    *,
+    base_model_id: str = DEFAULT_BASE_MODEL_ID,
+    run_id: str = DEFAULT_RUN_ID,
+    archive_name: str = DEFAULT_ARCHIVE_NAME,
+) -> dict:
     value = notebook()
     cells = value["cells"]
     cells[0]["source"] = [
@@ -34,7 +45,8 @@ comparison. Add `HF_TOKEN` in Colab Secrets only when the selected base model is
     ]
     cells[2]["source"] = [
         line
-        for line in """import json
+        for line in """import hashlib
+import json
 import os
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -164,9 +176,7 @@ base_model.eval()
     ]
     cells[9]["source"] = [
         line
-        for line in """import hashlib
-
-def save_predictions(path, predictions):
+        for line in """def save_predictions(path, predictions):
     with path.open("w") as stream:
         for row, completion in zip(
             rows[:MAX_EXAMPLES], predictions, strict=True
@@ -229,14 +239,49 @@ This Colab notebook performs only the GPU-heavy base and adapter inference over 
 held-out examples.
 """.splitlines(keepends=True)
     ]
+    replacements = {
+        DEFAULT_BASE_MODEL_ID: base_model_id,
+        DEFAULT_RUN_ID: run_id,
+        DEFAULT_ARCHIVE_NAME: archive_name,
+    }
+    for cell in cells:
+        source = "".join(cell["source"])
+        for original, replacement in replacements.items():
+            source = source.replace(original, replacement)
+        cell["source"] = source.splitlines(keepends=True)
     return value
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Build a GPU-only Colab inference notebook for an exact run."
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("colab/falsifyrl_evaluation.ipynb"),
+    )
+    parser.add_argument("--base-model-id", default=DEFAULT_BASE_MODEL_ID)
+    parser.add_argument("--run-id", default=DEFAULT_RUN_ID)
+    parser.add_argument("--archive-name", default=DEFAULT_ARCHIVE_NAME)
+    return parser.parse_args()
+
+
 def main() -> None:
-    destination = Path("colab/falsifyrl_evaluation.ipynb")
+    args = parse_args()
+    destination = args.output
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(
-        json.dumps(colab_notebook(), indent=2, ensure_ascii=False) + "\n",
+        json.dumps(
+            colab_notebook(
+                base_model_id=args.base_model_id,
+                run_id=args.run_id,
+                archive_name=args.archive_name,
+            ),
+            indent=2,
+            ensure_ascii=False,
+        )
+        + "\n",
         encoding="utf-8",
     )
     print(destination.resolve())
