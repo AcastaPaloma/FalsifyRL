@@ -113,6 +113,29 @@ def test_colab_notebook_can_pin_a_backup_run() -> None:
     assert '"Qwen/Qwen3.5-9B"' not in rendered
 
 
+def test_colab_notebook_optionally_uses_fail_closed_4bit_inference() -> None:
+    value = colab_notebook(use_4bit=True)
+    install_cell = "".join(value["cells"][1]["source"])
+    model_cell = "".join(value["cells"][6]["source"])
+
+    assert 'FALSIFYRL_USE_4BIT"] = "true"' in install_cell
+    assert '"bitsandbytes>=0.46,<1"' in install_cell
+    assert "BitsAndBytesConfig" in model_cell
+    assert "4-bit inference requires a Colab GPU runtime" in model_cell
+    assert "load_in_4bit=True" in model_cell
+    assert 'bnb_4bit_quant_type="nf4"' in model_cell
+    assert "bnb_4bit_use_double_quant=True" in model_cell
+    assert "bnb_4bit_compute_dtype" in model_cell
+
+
+def test_colab_notebook_keeps_4bit_opt_in_by_default() -> None:
+    value = colab_notebook()
+    install_cell = "".join(value["cells"][1]["source"])
+
+    assert 'FALSIFYRL_USE_4BIT"] = "false"' in install_cell
+    assert '"bitsandbytes>=0.46,<1"' not in install_cell
+
+
 def test_kaggle_run_waits_for_hash_verified_model_release(tmp_path: Path) -> None:
     manifest_path = tmp_path / "manifest.json"
     manifest_path.write_text(

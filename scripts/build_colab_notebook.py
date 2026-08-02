@@ -29,6 +29,7 @@ def colab_notebook(
     max_examples: int | None = None,
     max_new_tokens: int = 768,
     batch_size: int = 1,
+    use_4bit: bool = False,
 ) -> dict:
     value = notebook()
     cells = value["cells"]
@@ -56,12 +57,17 @@ comparison. Add `HF_TOKEN` in Colab Secrets for private staging or a gated base 
         "import os\n",
         f'os.environ["FALSIFYRL_MAX_NEW_TOKENS"] = "{max_new_tokens}"\n',
         f'os.environ["FALSIFYRL_BATCH_SIZE"] = "{batch_size}"\n',
+        f'os.environ["FALSIFYRL_USE_4BIT"] = "{str(use_4bit).lower()}"\n',
     ]
     if max_examples is not None:
         runtime_config.append(
             f'os.environ["FALSIFYRL_MAX_EXAMPLES"] = "{max_examples}"\n'
         )
     cells[1]["source"] = [*runtime_config, "\n", *cells[1]["source"]]
+    if use_4bit:
+        cells[1]["source"].append(
+            '%pip install -q "bitsandbytes>=0.46,<1"\n'
+        )
     cells[1]["source"].extend(
         [
             "\n",
@@ -120,7 +126,12 @@ internal training-provider aliases do not leak into reproducibility.
 from google.colab import userdata
 from huggingface_hub import snapshot_download
 from peft import PeftModel
-from transformers import AutoModelForCausalLM, AutoModelForMultimodalLM, AutoTokenizer
+from transformers import (
+    AutoModelForCausalLM,
+    AutoModelForMultimodalLM,
+    AutoTokenizer,
+    BitsAndBytesConfig,
+)
 
 try:
     HF_TOKEN = userdata.get("HF_TOKEN")
@@ -212,6 +223,25 @@ model_kwargs = {
     "device_map": "auto",
     "low_cpu_mem_usage": True,
 }
+USE_4BIT = os.environ.get("FALSIFYRL_USE_4BIT", "false").lower() == "true"
+if USE_4BIT:
+    assert torch.cuda.is_available(), (
+        "4-bit inference requires a Colab GPU runtime; select L4 or A100 before rerunning"
+    )
+    try:
+        import bitsandbytes  # noqa: F401
+    except ImportError as error:
+        raise RuntimeError(
+            "4-bit inference was requested but bitsandbytes is unavailable; rerun the install cell"
+        ) from error
+    model_kwargs["quantization_config"] = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_use_double_quant=True,
+        bnb_4bit_compute_dtype=(
+            torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+        ),
+    )
 try:
     base_model = AutoModelForCausalLM.from_pretrained(BASE_MODEL_ID, **model_kwargs)
 except (TypeError, ValueError):
@@ -372,6 +402,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-examples", type=int)
     parser.add_argument("--max-new-tokens", type=int, default=768)
     parser.add_argument("--batch-size", type=int, default=1)
+    parser.add_argument(
+        "--use-4bit",
+        action="store_true",
+        help="Install bitsandbytes and load the base model with 4-bit NF4 quantization.",
+    )
     return parser.parse_args()
 
 
@@ -391,6 +426,7 @@ def main() -> None:
                 max_examples=args.max_examples,
                 max_new_tokens=args.max_new_tokens,
                 batch_size=args.batch_size,
+                use_4bit=args.use_4bit,
             ),
             indent=2,
             ensure_ascii=False,
