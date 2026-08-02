@@ -8,6 +8,48 @@ from pathlib import Path
 from falsifyrl.scenarios import GeneratedCase
 from falsifyrl.schema import Diagnosis, FailureType, Verdict
 
+PATCH_FIELD_ALIASES = {
+    "idle_weight": "idle_agent_weight",
+    "completion_weight": "completion_bonus",
+}
+FAILURE_TYPE_ALIASES = {
+    "idle_waste": FailureType.NO_OP_BONUS.value,
+    "idle_wait": FailureType.NO_OP_BONUS.value,
+}
+OUTPUT_CANONICALIZER = "falsifyrl_schema_aliases_v1"
+
+
+def canonicalize_schema_aliases(completion: str) -> tuple[str, int]:
+    """Normalize only documented, unambiguous output-schema aliases."""
+    try:
+        data = json.loads(completion)
+    except (TypeError, json.JSONDecodeError):
+        return completion, 0
+    if not isinstance(data, dict):
+        return completion, 0
+
+    repairs = 0
+    failure_type = data.get("failure_type")
+    canonical_failure = FAILURE_TYPE_ALIASES.get(failure_type)
+    if canonical_failure is not None:
+        data["failure_type"] = canonical_failure
+        repairs += 1
+
+    patch = data.get("reward_patch")
+    if isinstance(patch, dict) and isinstance(patch.get("updates"), dict):
+        normalized: dict[str, object] = {}
+        for field, value in patch["updates"].items():
+            canonical_field = PATCH_FIELD_ALIASES.get(field, field)
+            if canonical_field in normalized and normalized[canonical_field] != value:
+                return completion, 0
+            normalized[canonical_field] = value
+            repairs += int(canonical_field != field)
+        patch["updates"] = normalized
+
+    if not repairs:
+        return completion, 0
+    return json.dumps(data, separators=(",", ":"), sort_keys=True), repairs
+
 
 @dataclass(frozen=True)
 class EvaluationMetrics:

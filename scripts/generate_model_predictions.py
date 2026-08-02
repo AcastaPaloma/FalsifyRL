@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TypeVar
 
 from falsifyrl.dataset import DatasetBuildConfig, build_cases
+from falsifyrl.evaluation import canonicalize_schema_aliases
 
 T = TypeVar("T")
 
@@ -30,11 +31,12 @@ def extract_json_object(text: str) -> str:
         if {"verdict", "failure_type"}.issubset(value)
     ]
     if preferred or candidates:
-        return json.dumps(
+        completion = json.dumps(
             (preferred or candidates)[-1],
             separators=(",", ":"),
             sort_keys=True,
         )
+        return canonicalize_schema_aliases(completion)[0]
     return text.strip()
 
 

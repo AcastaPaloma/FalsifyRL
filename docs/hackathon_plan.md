@@ -176,6 +176,10 @@ Model gate:
 - executable patch success improves over the base model,
 - results are reported on the held-out `crossing_navigation` family.
 
+The deterministic inference contract applies `falsifyrl_schema_aliases_v1` to both base and adapted
+outputs before strict parsing. The bounded transform only canonicalizes documented schema synonyms;
+it does not infer missing fields, inspect gold labels, or repair ambiguous updates.
+
 The deterministic pre-training baselines on the 640-example held-out split are:
 
 | Baseline | Verdict accuracy | Verdict macro-F1 | Failure macro-F1 | Composite |

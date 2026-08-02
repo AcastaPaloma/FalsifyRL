@@ -264,7 +264,14 @@ class Diagnosis:
                 f"Diagnosis keys must be exactly {sorted(required_keys)}, got {sorted(data)}"
             )
         patch_data = data["reward_patch"]
-        patch = None if patch_data is None else RewardPatch(updates=patch_data["updates"])
+        if patch_data is None:
+            patch = None
+        else:
+            if not isinstance(patch_data, dict) or set(patch_data) != {"updates"}:
+                raise ValueError(
+                    "reward_patch must be null or an object containing exactly updates"
+                )
+            patch = RewardPatch(updates=patch_data["updates"])
         return cls(
             verdict=Verdict(data["verdict"]),
             failure_type=FailureType(data["failure_type"]),

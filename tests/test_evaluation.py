@@ -6,7 +6,11 @@ from pathlib import Path
 import pytest
 
 from falsifyrl import SCENARIO_DEFINITIONS, FailureType, generate_paired_cases
-from falsifyrl.evaluation import evaluate_completions, load_prediction_jsonl
+from falsifyrl.evaluation import (
+    canonicalize_schema_aliases,
+    evaluate_completions,
+    load_prediction_jsonl,
+)
 from falsifyrl.schema import Diagnosis, Verdict
 
 
@@ -68,6 +72,49 @@ def test_invalid_or_missing_predictions_score_as_failures() -> None:
     assert metrics.composite_score < 0.1
 
 
+def test_malformed_reward_patch_scores_invalid_instead_of_crashing() -> None:
+    cases = _cases()
+    exploit = next(case for case in cases if case.failure_type != FailureType.NONE)
+    malformed = exploit.diagnosis.to_dict()
+    malformed["reward_patch"] = {}
+
+    metrics = evaluate_completions(
+        cases,
+        {exploit.example_id: json.dumps(malformed)},
+    )
+
+    assert metrics.json_validity == 0.0
+    assert metrics.composite_score == 0.0
+
+
+def test_schema_alias_canonicalizer_is_bounded_and_deterministic() -> None:
+    completion = json.dumps(
+        {
+            "failure_type": "idle_wait",
+            "reward_patch": {"updates": {"idle_weight": -0.2}},
+        }
+    )
+
+    canonical, repairs = canonicalize_schema_aliases(completion)
+
+    assert repairs == 2
+    assert json.loads(canonical) == {
+        "failure_type": "no_op_bonus",
+        "reward_patch": {"updates": {"idle_agent_weight": -0.2}},
+    }
+    ambiguous = json.dumps(
+        {
+            "reward_patch": {
+                "updates": {
+                    "idle_weight": -0.2,
+                    "idle_agent_weight": -0.1,
+                }
+            }
+        }
+    )
+    assert canonicalize_schema_aliases(ambiguous) == (ambiguous, 0)
+
+
 def test_prediction_loader_requires_unique_exact_schema(tmp_path: Path) -> None:
     path = tmp_path / "predictions.jsonl"
     row = {"example_id": "frl-1", "completion": "{}"}
@@ -75,4 +122,3 @@ def test_prediction_loader_requires_unique_exact_schema(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="duplicate prediction"):
         load_prediction_jsonl(path)
-

@@ -21,6 +21,17 @@ def test_extract_json_object_strips_model_wrapping_text() -> None:
         'thinking {"note":"intermediate"} final '
         '{"failure_type":"none","verdict":"aligned"}'
     ) == '{"failure_type":"none","verdict":"aligned"}'
+    assert json.loads(
+        extract_json_object(
+            'final {"failure_type":"idle_waste",'
+            '"reward_patch":{"updates":{"idle_weight":-0.2}},'
+            '"verdict":"reward_hack"}'
+        )
+    ) == {
+        "failure_type": "no_op_bonus",
+        "reward_patch": {"updates": {"idle_agent_weight": -0.2}},
+        "verdict": "reward_hack",
+    }
 
 
 def test_batches_preserves_order_and_rejects_invalid_size() -> None:

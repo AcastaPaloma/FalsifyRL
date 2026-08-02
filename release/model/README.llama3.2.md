@@ -44,6 +44,10 @@ confidence
 - best platform win rate: `BEST_WIN_RATE`
 - held-out metrics: `EVALUATION_REPORT_URL`
 
+Deterministic decoding applies the documented `falsifyrl_schema_aliases_v1` output canonicalizer to
+both base and adapted predictions before strict scoring. It maps only unambiguous schema synonyms,
+does not use gold labels, and leaves ambiguous or incomplete outputs invalid.
+
 ## License and attribution
 
 This adapter is derived from Meta Llama 3.2 and is distributed subject to the Llama 3.2 Community

@@ -53,6 +53,9 @@ def test_kaggle_notebook_contains_reproducibility_contract() -> None:
     assert 'RELEASE_MANIFEST["files"][prediction_path.name]["sha256"]' in rendered
     assert '"release_identity": RELEASE_IDENTITY' in rendered
     assert '"adapter_sha256": RELEASE_MANIFEST["files"][ADAPTER_WEIGHTS.name]["sha256"]' in rendered
+    assert "falsifyrl_schema_aliases_v1" in rendered
+    assert '"idle_weight": "idle_agent_weight"' in rendered
+    assert '"idle_wait": "no_op_bonus"' in rendered
 
 
 def test_kaggle_release_declares_exact_adapted_dataset_and_model(
@@ -101,6 +104,7 @@ def test_colab_notebook_uses_private_commit_pinned_huggingface_staging() -> None
     assert "2f10c842-c124-407b-89c0-f4af5a761bb4" in rendered
     assert "checkpoint-manifest.json" in rendered
     assert "evaluation-manifest.json" in rendered
+    assert '"output_canonicalizer": report["output_canonicalizer"]' in rendered
     assert "parent_commit=current_head" in rendered
     assert "CommitOperationAdd" in rendered
     assert "%pip uninstall -q -y torchao" in rendered

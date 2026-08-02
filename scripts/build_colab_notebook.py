@@ -54,7 +54,9 @@ comparison. Add `HF_TOKEN` in Colab Secrets for private staging or a gated base 
         ).splitlines(keepends=True)
     ]
     runtime_config = [
+        "import gc\n",
         "import os\n",
+        "\n",
         'os.environ.pop("FALSIFYRL_MAX_EXAMPLES", None)\n',
         f'os.environ["FALSIFYRL_MAX_NEW_TOKENS"] = "{max_new_tokens}"\n',
         f'os.environ["FALSIFYRL_BATCH_SIZE"] = "{batch_size}"\n',
@@ -73,7 +75,6 @@ comparison. Add `HF_TOKEN` in Colab Secrets for private staging or a gated base 
         [
             "\n",
             "# Release stale model objects when rerunning a notebook in one runtime.\n",
-            "import gc\n",
             'globals().pop("model", None)\n',
             'globals().pop("base_model", None)\n',
             "gc.collect()\n",
@@ -207,6 +208,9 @@ assert expected_slug in checkpoint_slug or checkpoint_slug.endswith(expected_slu
     f"checkpoint base {checkpoint_base!r} does not match {EXPECTED_BASE_MODEL_ID!r}"
 )
 BASE_MODEL_ID = EXPECTED_BASE_MODEL_ID
+USE_LIVE_INFERENCE = True
+BASE_PREDICTION_SOURCE = Path()
+ADAPTED_PREDICTION_SOURCE = Path()
 print("adapter:", ADAPTER_SOURCE)
 print("base model:", BASE_MODEL_ID)
 
@@ -286,6 +290,11 @@ report = {
     "example_count": MAX_EXAMPLES,
     "base_predictions_sha256": sha256(base_prediction_path),
     "adapted_predictions_sha256": sha256(adapted_prediction_path),
+    "output_canonicalizer": {
+        "name": OUTPUT_CANONICALIZER,
+        "patch_field_aliases": PATCH_FIELD_ALIASES,
+        "failure_type_aliases": FAILURE_TYPE_ALIASES,
+    },
     "base_metrics": base_metrics,
     "adapted_metrics": adapted_metrics,
     "improvement": {
@@ -307,6 +316,7 @@ artifact_manifest = {
     "batch_size": BATCH_SIZE,
     "max_new_tokens": int(os.environ.get("FALSIFYRL_MAX_NEW_TOKENS", 768)),
     "do_sample": False,
+    "output_canonicalizer": report["output_canonicalizer"],
     "files": {
         base_prediction_path.name: {
             "sha256": report["base_predictions_sha256"],

@@ -244,6 +244,31 @@ else:
         ),
         _code(
             """
+PATCH_FIELD_ALIASES = {
+    "idle_weight": "idle_agent_weight",
+    "completion_weight": "completion_bonus",
+}
+FAILURE_TYPE_ALIASES = {
+    "idle_waste": "no_op_bonus",
+    "idle_wait": "no_op_bonus",
+}
+OUTPUT_CANONICALIZER = "falsifyrl_schema_aliases_v1"
+
+def canonicalize_schema_aliases(value):
+    failure_type = value.get("failure_type")
+    if failure_type in FAILURE_TYPE_ALIASES:
+        value["failure_type"] = FAILURE_TYPE_ALIASES[failure_type]
+    patch = value.get("reward_patch")
+    if isinstance(patch, dict) and isinstance(patch.get("updates"), dict):
+        updates = patch["updates"]
+        normalized = {
+            PATCH_FIELD_ALIASES.get(field, field): update
+            for field, update in updates.items()
+        }
+        if len(normalized) == len(updates):
+            patch["updates"] = normalized
+    return value
+
 def extract_json(text):
     decoder = json.JSONDecoder()
     candidates = []
@@ -262,7 +287,7 @@ def extract_json(text):
     ]
     if preferred or candidates:
         return json.dumps(
-            (preferred or candidates)[-1],
+            canonicalize_schema_aliases((preferred or candidates)[-1]),
             separators=(",", ":"),
             sort_keys=True,
         )

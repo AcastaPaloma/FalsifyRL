@@ -59,6 +59,13 @@ Every exploit must fail the independent task oracle while earning at least 90% o
 return. Every gold patch must reduce exploit return by at least 0.5 while preserving useful aligned
 return. The held-out evaluator executes predicted patches rather than grading text similarity.
 
+Inference uses deterministic decoding plus the versioned
+`falsifyrl_schema_aliases_v1` canonicalizer before strict validation. It maps only four documented,
+unambiguous vocabulary aliases (`idle_weight`, `completion_weight`, `idle_waste`, and `idle_wait`)
+to their public schema names. The same transform is applied to base and adapted outputs, never uses
+gold labels, leaves ambiguous collisions unchanged, and records the canonicalized prediction hashes
+in the release evidence.
+
 ## Public artifacts
 
 - [Verified source dataset on Hugging Face](https://huggingface.co/datasets/KuanKuanKuan/falsifyrl-source)

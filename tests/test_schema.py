@@ -44,6 +44,23 @@ def test_diagnosis_rejects_extra_json_fields() -> None:
         Diagnosis.from_json(json.dumps(value))
 
 
+def test_diagnosis_rejects_malformed_reward_patch_as_value_error() -> None:
+    value = Diagnosis(
+        verdict=Verdict.REWARD_HACK,
+        failure_type=FailureType.COLLISION_BLIND,
+        responsible_agents=("agent_a",),
+        evidence_steps=(1,),
+        counterexample_config={},
+        reward_patch=RewardPatch(updates={"collision_weight": -4.0}),
+        expected_effect="Penalize the collision.",
+        confidence=0.9,
+    ).to_dict()
+    value["reward_patch"] = {}
+
+    with pytest.raises(ValueError, match="containing exactly updates"):
+        Diagnosis.from_json(json.dumps(value))
+
+
 def test_reward_patch_is_declarative_and_field_limited() -> None:
     reward = RewardSpec(collision_weight=0.0)
     patched = RewardPatch(updates={"collision_weight": -5.0}).apply(reward)
@@ -59,4 +76,3 @@ def test_step_metrics_enforce_two_agent_bounds() -> None:
         StepMetrics(step=0, agent_progress=(0.5,))
     with pytest.raises(ValueError, match=r"\[0, 1\]"):
         StepMetrics(step=0, agent_progress=(0.5, 1.2))
-
