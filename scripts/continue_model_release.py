@@ -92,6 +92,43 @@ def resolve_evaluated_adapter_base_model(
     return state.resolved_model
 
 
+def verify_selected_release_artifacts(
+    *,
+    state: WorkflowState,
+    comparison: dict,
+    checkpoint: Path,
+    checkpoint_manifest: Path,
+    adapter_dir: Path,
+    base_predictions: Path,
+    adapted_predictions: Path,
+) -> None:
+    manifest = json.loads(checkpoint_manifest.read_text(encoding="utf-8"))
+    bindings = {
+        "autoscientist_run_id": state.autoscientist_run_id,
+        "base_model_id": state.resolved_model,
+    }
+    for key, expected in bindings.items():
+        if not expected or manifest.get(key) != expected:
+            raise ValueError(f"checkpoint manifest binding mismatch for {key}")
+    original_checkpoint = manifest.get("original_checkpoint", {})
+    if original_checkpoint.get("sha256") != _sha256(checkpoint):
+        raise ValueError("selected checkpoint archive hash does not match run manifest")
+    adapter_model = manifest.get("adapter_model", {})
+    if adapter_model.get("sha256") != _sha256(
+        adapter_dir / "adapter_model.safetensors"
+    ):
+        raise ValueError("selected adapter hash does not match run manifest")
+
+    evidence = comparison.get("evidence", {})
+    prediction_bindings = {
+        "base_predictions_sha256": _sha256(base_predictions),
+        "adapted_predictions_sha256": _sha256(adapted_predictions),
+    }
+    for key, actual in prediction_bindings.items():
+        if evidence.get(key) != actual:
+            raise ValueError(f"released prediction hash mismatch for {key}")
+
+
 def verify_huggingface_adapter(repo_id: str, expected_sha256: str) -> str:
     try:
         from huggingface_hub import hf_hub_download
@@ -219,6 +256,11 @@ def parse_args() -> argparse.Namespace:
         help="empty run-scoped directory used to verify the selected checkpoint",
     )
     parser.add_argument(
+        "--checkpoint-manifest",
+        type=Path,
+        required=True,
+    )
+    parser.add_argument(
         "--comparison",
         type=Path,
         default=Path("outputs/evaluation/comparison.json"),
@@ -281,7 +323,7 @@ def main() -> None:
     if not huggingface_owner or not kaggle_owner:
         raise RuntimeError("both Hugging Face and Kaggle owners are required")
 
-    state, _comparison, submission = await_passing_evaluation(
+    state, comparison, submission = await_passing_evaluation(
         args.state,
         args.comparison,
         args.submission_manifest,
@@ -291,6 +333,15 @@ def main() -> None:
     dataset_repo_id = f"{huggingface_owner}/falsifyrl-adapted"
     extract_adapter_checkpoint(args.checkpoint, args.adapter_dir)
     base_model_id = resolve_evaluated_adapter_base_model(args.adapter_dir, state)
+    verify_selected_release_artifacts(
+        state=state,
+        comparison=comparison,
+        checkpoint=args.checkpoint,
+        checkpoint_manifest=args.checkpoint_manifest,
+        adapter_dir=args.adapter_dir,
+        base_predictions=args.base_predictions,
+        adapted_predictions=args.model_predictions,
+    )
     kaggle_license_name = args.kaggle_license_name or None
     validate_model_release_configuration(
         base_model_id=base_model_id,

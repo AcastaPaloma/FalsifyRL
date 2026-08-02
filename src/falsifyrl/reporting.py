@@ -82,6 +82,9 @@ def build_comparison_report(
             raise ValueError(f"{label} report is missing metrics")
         if metrics.get("example_count") != 640:
             raise ValueError(f"{label} report must contain exactly 640 examples")
+        prediction_sha256 = report.get("predictions_sha256")
+        if not isinstance(prediction_sha256, str) or len(prediction_sha256) != 64:
+            raise ValueError(f"{label} report must bind its prediction SHA-256")
         missing = [name for name in REQUIRED_METRICS if name not in metrics]
         if missing:
             raise ValueError(f"{label} report is missing metrics: {missing}")
@@ -152,6 +155,10 @@ def build_comparison_report(
                 "dataset_manifest_sha256": dataset_manifest_sha256,
                 "adapter_sha256": adapter_sha256,
                 "autoscientist_run_id": autoscientist_run_id,
+                "base_predictions_sha256": base_report["predictions_sha256"],
+                "adapted_predictions_sha256": adapted_report[
+                    "predictions_sha256"
+                ],
             },
             "submission_thresholds": {
                 "positive_composite_improvement": True,

@@ -28,6 +28,7 @@ from scripts.continue_model_release import (
     await_passing_evaluation,
     resolve_evaluated_adapter_base_model,
     validate_model_release_configuration,
+    verify_selected_release_artifacts,
 )
 from scripts.continue_model_release import (
     update_private_manifest as update_model_manifest,
@@ -36,6 +37,66 @@ from scripts.continue_model_release import (
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_selected_release_artifacts_are_hash_bound_to_run(
+    tmp_path: Path,
+) -> None:
+    checkpoint = tmp_path / "checkpoint.tgz"
+    checkpoint.write_bytes(b"checkpoint")
+    adapter_dir = tmp_path / "adapter"
+    adapter_dir.mkdir()
+    adapter = adapter_dir / "adapter_model.safetensors"
+    adapter.write_bytes(b"adapter")
+    base = tmp_path / "base.jsonl"
+    adapted = tmp_path / "adapted.jsonl"
+    base.write_text("base\n", encoding="utf-8")
+    adapted.write_text("adapted\n", encoding="utf-8")
+    state = WorkflowState(
+        plan=AutoScientistPlan(source="file", local_file="train.jsonl"),
+        autoscientist_run_id="run-123",
+        resolved_model="base/model",
+    )
+    manifest = tmp_path / "checkpoint-manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "autoscientist_run_id": "run-123",
+                "base_model_id": "base/model",
+                "original_checkpoint": {"sha256": _sha256(checkpoint)},
+                "adapter_model": {"sha256": _sha256(adapter)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    comparison = {
+        "evidence": {
+            "base_predictions_sha256": _sha256(base),
+            "adapted_predictions_sha256": _sha256(adapted),
+        }
+    }
+
+    verify_selected_release_artifacts(
+        state=state,
+        comparison=comparison,
+        checkpoint=checkpoint,
+        checkpoint_manifest=manifest,
+        adapter_dir=adapter_dir,
+        base_predictions=base,
+        adapted_predictions=adapted,
+    )
+
+    adapted.write_text("tampered\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="adapted_predictions_sha256"):
+        verify_selected_release_artifacts(
+            state=state,
+            comparison=comparison,
+            checkpoint=checkpoint,
+            checkpoint_manifest=manifest,
+            adapter_dir=adapter_dir,
+            base_predictions=base,
+            adapted_predictions=adapted,
+        )
 
 
 def test_llama_release_configuration_fails_closed_on_apache_defaults(

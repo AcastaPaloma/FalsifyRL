@@ -16,7 +16,12 @@ def _evaluation(composite: float, json_validity: float) -> dict:
             "json_validity": json_validity,
         }
     )
-    return {"split": "test", "source": "predictions.jsonl", "metrics": metrics}
+    return {
+        "split": "test",
+        "source": "predictions.jsonl",
+        "predictions_sha256": "c" * 64,
+        "metrics": metrics,
+    }
 
 
 def test_comparison_report_proves_same_split_and_positive_improvement() -> None:
@@ -39,6 +44,7 @@ def test_comparison_report_proves_same_split_and_positive_improvement() -> None:
         pytest.approx(50.0)
     )
     assert "Submission thresholds: **PASS**" in report.to_markdown()
+    assert report.value["evidence"]["base_predictions_sha256"] == "c" * 64
 
 
 def test_comparison_report_handles_zero_base_without_infinite_percentage() -> None:

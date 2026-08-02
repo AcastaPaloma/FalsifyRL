@@ -110,6 +110,7 @@ license metadata unset rather than claiming Apache 2.0. The bundled license rema
   --state "outputs/evaluation/$run/workflow.json" `
   --checkpoint outputs/autoscientist/best-checkpoint.tgz `
   --adapter-dir "outputs/evaluation/$run/release-adapter" `
+  --checkpoint-manifest "outputs/evaluation/$run/checkpoint-manifest.json" `
   --comparison "outputs/evaluation/$run/final/comparison.json" `
   --base-predictions "outputs/evaluation/$run/final/staged-evidence/falsifyrl-base-test-predictions.jsonl" `
   --model-predictions "outputs/evaluation/$run/final/staged-evidence/falsifyrl-adapted-test-predictions.jsonl" `
