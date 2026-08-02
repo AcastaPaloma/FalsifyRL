@@ -46,6 +46,16 @@ import os
 from collections import Counter, defaultdict
 from pathlib import Path
 
+try:
+    from kaggle_secrets import UserSecretsClient
+
+    if not os.environ.get("HF_TOKEN"):
+        os.environ["HF_TOKEN"] = UserSecretsClient().get_secret("HF_TOKEN")
+except Exception:
+    # Public, ungated base models do not need a token. Gated Llama runs fail
+    # normally in from_pretrained if the notebook owner has not configured it.
+    pass
+
 INPUT_ROOT = Path("/kaggle/input")
 test_candidates = list(INPUT_ROOT.rglob("test.jsonl"))
 assert test_candidates, "Attach the public falsifyrl-seed dataset"
@@ -154,8 +164,8 @@ print("reward only:", compact_metrics(reward_only))
             """
 ## Load the public AutoScientist adapter
 
-Attach the Kaggle Model `falsifyrl-autoscientist/pytorch/lora`. The adapter config names the exact
-base model selected by AutoScientist.
+Attach the Kaggle Model `Llama-FalsifyRL-AutoScientist/pytorch/lora`. The adapter config names the
+exact base model selected by AutoScientist.
 """
         ),
         _code(

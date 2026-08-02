@@ -41,6 +41,8 @@ def test_kaggle_notebook_contains_reproducibility_contract() -> None:
     assert 'FALSIFYRL_BATCH_SIZE", 1' in rendered
     assert "FALSIFYRL_MAX_NEW_TOKENS" in rendered
     assert "tokenizer.batch_decode" in rendered
+    assert 'UserSecretsClient().get_secret("HF_TOKEN")' in rendered
+    assert "Llama-FalsifyRL-AutoScientist/pytorch/lora" in rendered
 
 
 def test_kaggle_release_declares_exact_adapted_dataset_and_model(

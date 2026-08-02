@@ -154,7 +154,10 @@ prediction after the Space finishes building.
 ## Publish the held-out Kaggle notebook
 
 After the adapted dataset and model exist on Kaggle, stage the notebook with both resources
-declared as immutable inputs:
+declared as immutable inputs. Because the selected Llama base weights are gated on Hugging Face,
+first create a private Kaggle notebook secret named `HF_TOKEN` with read access to
+`meta-llama/Llama-3.2-3B-Instruct`. The notebook reads the secret without printing it; it never
+stores the token in code or outputs.
 
 ```powershell
 .\.venv\Scripts\python.exe scripts/continue_kaggle_notebook.py `
