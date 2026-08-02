@@ -169,6 +169,7 @@ def test_staged_evidence_is_bound_to_exact_run_and_files(tmp_path: Path) -> None
         for path in (report_path, base, adapted)
     }
     manifest = {
+        "schema_version": 1,
         "autoscientist_run_id": "run-qwen",
         "base_model_id": "Qwen/Qwen3.5-9B",
         "checkpoint_revision": "a" * 40,
@@ -188,8 +189,18 @@ def test_staged_evidence_is_bound_to_exact_run_and_files(tmp_path: Path) -> None
         state_path=state_path,
         adapter_weights=adapter,
         dataset_manifest=dataset_manifest,
+        checkpoint_revision="a" * 40,
     )
     assert verified == (base, adapted)
+
+    with pytest.raises(ValueError, match="checkpoint revision"):
+        verify_staged_evidence(
+            evidence_dir=evidence,
+            state_path=state_path,
+            adapter_weights=adapter,
+            dataset_manifest=dataset_manifest,
+            checkpoint_revision="b" * 40,
+        )
 
     adapted.write_text("{}\n", encoding="utf-8")
     with pytest.raises(ValueError, match="hash mismatch"):
@@ -198,6 +209,7 @@ def test_staged_evidence_is_bound_to_exact_run_and_files(tmp_path: Path) -> None
             state_path=state_path,
             adapter_weights=adapter,
             dataset_manifest=dataset_manifest,
+            checkpoint_revision="a" * 40,
         )
 
 

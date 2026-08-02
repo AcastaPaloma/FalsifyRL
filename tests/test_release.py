@@ -26,6 +26,7 @@ from scripts.continue_dataset_release import (
 )
 from scripts.continue_model_release import (
     await_passing_evaluation,
+    resolve_evaluated_adapter_base_model,
     validate_model_release_configuration,
 )
 from scripts.continue_model_release import (
@@ -392,11 +393,16 @@ def test_model_release_requires_passing_evaluation_and_published_dataset(
         autoscientist_run_id="experiment-123",
         autoscientist_status="succeeded",
         best_win_rate=0.8,
+        resolved_model="meta-llama/Llama-3.2-3B-Instruct",
     ).save(state_path)
     comparison_path = tmp_path / "comparison.json"
     comparison_path.write_text(
         json.dumps(
             {
+                "evidence": {
+                    "autoscientist_run_id": "experiment-123",
+                    "base_model_id": "meta-llama/Llama-3.2-3B-Instruct",
+                },
                 "metrics": {
                     "base": {"composite_score": 0.0},
                     "adapted": {
@@ -431,6 +437,90 @@ def test_model_release_requires_passing_evaluation_and_published_dataset(
 
     assert state.autoscientist_run_id == "experiment-123"
     assert comparison["metrics"]["adapted"]["composite_score"] == 0.8
+
+
+def test_model_release_rejects_comparison_for_different_run_or_base(
+    tmp_path: Path,
+) -> None:
+    state_path = tmp_path / "workflow.json"
+    WorkflowState(
+        plan=AutoScientistPlan(source="file", local_file="train.jsonl"),
+        autoscientist_run_id="llama-run",
+        autoscientist_status="succeeded",
+        best_win_rate=0.8,
+        resolved_model="meta-llama/Llama-3.2-3B-Instruct",
+    ).save(state_path)
+    comparison_path = tmp_path / "comparison.json"
+    comparison_path.write_text(
+        json.dumps(
+            {
+                "evidence": {
+                    "autoscientist_run_id": "qwen-run",
+                    "base_model_id": "Qwen/Qwen3.5-9B",
+                },
+                "metrics": {
+                    "base": {"composite_score": 0.0},
+                    "adapted": {"composite_score": 0.8, "json_validity": 0.99},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    submission_path = tmp_path / "submission.json"
+    submission_path.write_text(
+        json.dumps(
+            {
+                "links": {
+                    "huggingface_dataset": "https://huggingface.co/datasets/owner/data",
+                    "kaggle_dataset": "https://www.kaggle.com/datasets/owner/data",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="run ID"):
+        await_passing_evaluation(
+            state_path,
+            comparison_path,
+            submission_path,
+            poll_seconds=0,
+            timeout_seconds=1,
+        )
+
+
+def test_model_release_canonicalizes_only_matching_adapter_base_model(
+    tmp_path: Path,
+) -> None:
+    adapter_dir = tmp_path / "adapter"
+    adapter_dir.mkdir()
+    config_path = adapter_dir / "adapter_config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "base_model_name_or_path": (
+                    "meta-llama/Llama-3.2-3B-Instruct-reference__tog__ft"
+                )
+            }
+        ),
+        encoding="utf-8",
+    )
+    state = WorkflowState(
+        plan=AutoScientistPlan(source="file", local_file="train.jsonl"),
+        resolved_model="meta-llama/Llama-3.2-3B-Instruct",
+    )
+
+    assert resolve_evaluated_adapter_base_model(adapter_dir, state) == state.resolved_model
+    assert json.loads(config_path.read_text(encoding="utf-8"))["base_model_name_or_path"] == (
+        state.resolved_model
+    )
+
+    config_path.write_text(
+        json.dumps({"base_model_name_or_path": "Qwen/Qwen3.5-9B"}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="does not match"):
+        resolve_evaluated_adapter_base_model(adapter_dir, state)
 
 
 def test_model_release_records_links_without_claiming_runtime_success(

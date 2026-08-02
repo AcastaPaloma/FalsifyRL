@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 from falsifyrl.autoscientist import WorkflowState
 from falsifyrl.demo import prepare_space_bundle
 from falsifyrl.release import (
+    canonicalize_adapter_base_model,
     prepare_model_bundle,
     publish_huggingface_model,
     publish_huggingface_space,
@@ -46,12 +47,20 @@ def await_passing_evaluation(
         if (
             state.autoscientist_status == "succeeded"
             and state.autoscientist_run_id
+            and state.resolved_model
             and state.best_win_rate is not None
             and comparison_path.is_file()
             and submission["links"].get("huggingface_dataset")
             and submission["links"].get("kaggle_dataset")
         ):
             comparison = json.loads(comparison_path.read_text(encoding="utf-8"))
+            evidence = comparison.get("evidence")
+            if not isinstance(evidence, dict):
+                raise RuntimeError("comparison is missing identity evidence")
+            if evidence.get("autoscientist_run_id") != state.autoscientist_run_id:
+                raise RuntimeError("comparison run ID does not match workflow state")
+            if evidence.get("base_model_id") != state.resolved_model:
+                raise RuntimeError("comparison base model does not match workflow state")
             trained = comparison["metrics"]["adapted"]
             base = comparison["metrics"]["base"]
             if trained["composite_score"] <= base["composite_score"]:
@@ -64,6 +73,22 @@ def await_passing_evaluation(
         if time.monotonic() >= deadline:
             raise TimeoutError("passing held-out evaluation did not become available")
         time.sleep(poll_seconds)
+
+
+def resolve_evaluated_adapter_base_model(
+    adapter_dir: Path,
+    state: WorkflowState,
+) -> str:
+    if not state.resolved_model:
+        raise ValueError("workflow state is missing the resolved base model")
+    adapter_config_candidates = list(adapter_dir.rglob("adapter_config.json"))
+    if len(adapter_config_candidates) != 1:
+        raise ValueError("evaluated checkpoint must contain one adapter_config.json")
+    canonicalize_adapter_base_model(
+        adapter_config_candidates[0].parent,
+        state.resolved_model,
+    )
+    return state.resolved_model
 
 
 def verify_huggingface_adapter(repo_id: str, expected_sha256: str) -> str:
@@ -242,17 +267,10 @@ def main() -> None:
         args.space_bundle,
         prediction_jsonl=args.model_predictions,
     )
-    adapter_config_candidates = list(
-        Path("outputs/autoscientist/extracted-checkpoint").rglob(
-            "adapter_config.json"
-        )
+    base_model_id = resolve_evaluated_adapter_base_model(
+        Path("outputs/autoscientist/extracted-checkpoint"),
+        state,
     )
-    if len(adapter_config_candidates) != 1:
-        raise ValueError("evaluated checkpoint must contain one adapter_config.json")
-    adapter_config = json.loads(
-        adapter_config_candidates[0].read_text(encoding="utf-8")
-    )
-    base_model_id = str(adapter_config["base_model_name_or_path"])
     kaggle_license_name = args.kaggle_license_name or None
     validate_model_release_configuration(
         base_model_id=base_model_id,

@@ -61,6 +61,7 @@ def verify_staged_evidence(
     state_path: Path,
     adapter_weights: Path,
     dataset_manifest: Path,
+    checkpoint_revision: str,
 ) -> tuple[Path, Path]:
     state = WorkflowState.load(state_path)
     manifest_path = evidence_dir / "evaluation-manifest.json"
@@ -74,6 +75,8 @@ def verify_staged_evidence(
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     report = json.loads(report_path.read_text(encoding="utf-8"))
     dataset = json.loads(dataset_manifest.read_text(encoding="utf-8"))
+    if manifest.get("schema_version") != 1:
+        raise ValueError("staged evidence manifest schema_version must be 1")
     expected_files = {
         report_path.name: report_path,
         base_path.name: base_path,
@@ -102,9 +105,9 @@ def verify_staged_evidence(
     for key, expected in bindings.items():
         if expected is None or manifest.get(key) != expected:
             raise ValueError(f"staged evidence binding mismatch for {key}")
-    if not isinstance(manifest.get("checkpoint_revision"), str) or len(
-        manifest["checkpoint_revision"]
-    ) != 40:
+    if manifest.get("checkpoint_revision") != checkpoint_revision:
+        raise ValueError("staged evidence checkpoint revision does not match request")
+    if len(checkpoint_revision) != 40:
         raise ValueError("staged evidence must pin a 40-character checkpoint revision")
     if manifest.get("do_sample") is not False:
         raise ValueError("staged evidence must use deterministic decoding")
@@ -289,6 +292,7 @@ def main() -> None:
             state_path=args.state,
             adapter_weights=args.adapter_weights,
             dataset_manifest=args.dataset_manifest,
+            checkpoint_revision=args.staging_revision,
         )
     if base_predictions is None or adapted_predictions is None:
         raise ValueError(
