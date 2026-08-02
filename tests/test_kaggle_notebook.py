@@ -4,14 +4,19 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from scripts import continue_kaggle_notebook
 from scripts.build_colab_notebook import colab_notebook
 from scripts.build_kaggle_notebook import notebook
 from scripts.continue_kaggle_notebook import (
     await_kernel_completion,
     await_verified_model_release,
+    load_selected_release_record,
     parse_kernel_status,
+    resolve_kaggle_source,
     update_private_manifest,
+    verify_kaggle_evaluation_report,
 )
 from scripts.prepare_kaggle_notebook import prepare_kaggle_notebook
 
@@ -46,6 +51,8 @@ def test_kaggle_notebook_contains_reproducibility_contract() -> None:
     assert "commit_verified_colab_evidence" in rendered
     assert "load_predictions(BASE_PREDICTION_SOURCE)" in rendered
     assert 'RELEASE_MANIFEST["files"][prediction_path.name]["sha256"]' in rendered
+    assert '"release_identity": RELEASE_IDENTITY' in rendered
+    assert '"adapter_sha256": RELEASE_MANIFEST["files"][ADAPTER_WEIGHTS.name]["sha256"]' in rendered
 
 
 def test_kaggle_release_declares_exact_adapted_dataset_and_model(
@@ -143,17 +150,55 @@ def test_colab_notebook_keeps_4bit_opt_in_by_default() -> None:
     assert 'os.environ.pop("FALSIFYRL_MAX_EXAMPLES", None)' in install_cell
 
 
-def test_kaggle_run_waits_for_hash_verified_model_release(tmp_path: Path) -> None:
+def _selected_release_record() -> dict:
+    return {
+        "schema_version": 1,
+        "identity": {
+            "autoscientist_run_id": "llama-run",
+            "base_model_id": "meta-llama/Llama-3.2-3B-Instruct",
+            "adapter_sha256": "a" * 64,
+            "base_predictions_sha256": "b" * 64,
+            "adapted_predictions_sha256": "c" * 64,
+        },
+        "huggingface_model": {
+            "owner": "hf-owner",
+            "slug": "Llama-FalsifyRL-AutoScientist",
+            "repo_id": "hf-owner/Llama-FalsifyRL-AutoScientist",
+            "url": "https://huggingface.co/hf-owner/Llama-FalsifyRL-AutoScientist",
+        },
+        "kaggle_model": {
+            "owner": "owner",
+            "slug": "Llama-FalsifyRL-AutoScientist",
+            "variation": "lora",
+            "version": 3,
+            "source": "owner/Llama-FalsifyRL-AutoScientist/pytorch/lora/3",
+            "url": "https://www.kaggle.com/models/owner/Llama-FalsifyRL-AutoScientist/pytorch/lora",
+        },
+        "kaggle_dataset": {
+            "owner": "owner",
+            "slug": "falsifyrl-adapted",
+            "url": "https://www.kaggle.com/datasets/owner/falsifyrl-adapted",
+        },
+    }
+
+
+def test_kaggle_run_waits_for_the_selected_hash_verified_model_release(
+    tmp_path: Path,
+) -> None:
+    selected = _selected_release_record()
     manifest_path = tmp_path / "manifest.json"
     manifest_path.write_text(
         json.dumps(
             {
                 "links": {
-                    "kaggle_dataset": "https://www.kaggle.com/datasets/owner/data",
-                    "kaggle_model": (
-                        "https://www.kaggle.com/models/owner/model/pytorch/lora"
-                    ),
+                    "kaggle_dataset": selected["kaggle_dataset"]["url"],
+                    "kaggle_model": selected["kaggle_model"]["url"],
+                    "huggingface_model": selected["huggingface_model"]["url"],
                     "kaggle_notebook": None,
+                },
+                "identifiers": {
+                    "autoscientist_run_id": selected["identity"]["autoscientist_run_id"],
+                    "base_model_id": selected["identity"]["base_model_id"],
                 },
                 "attestations": {"weights_public_on_both_platforms": True},
             }
@@ -163,6 +208,7 @@ def test_kaggle_run_waits_for_hash_verified_model_release(tmp_path: Path) -> Non
 
     manifest = await_verified_model_release(
         manifest_path,
+        selected,
         poll_seconds=0,
         timeout_seconds=1,
     )
@@ -176,6 +222,53 @@ def test_kaggle_run_waits_for_hash_verified_model_release(tmp_path: Path) -> Non
     assert updated["links"]["kaggle_notebook"].endswith(
         "falsifyrl-held-out-evaluation"
     )
+
+
+def test_selected_release_record_rejects_mismatched_kaggle_source(tmp_path: Path) -> None:
+    path = tmp_path / "selected-release.json"
+    path.write_text(json.dumps(_selected_release_record()), encoding="utf-8")
+
+    selected = load_selected_release_record(path)
+    assert resolve_kaggle_source(
+        selected,
+        owner="owner",
+        model_slug="Llama-FalsifyRL-AutoScientist",
+        model_version=3,
+    ) == ("owner", "Llama-FalsifyRL-AutoScientist", 3)
+
+    with pytest.raises(ValueError, match="slug"):
+        resolve_kaggle_source(
+            selected,
+            owner="owner",
+            model_slug="qwen-falsifyrl",
+            model_version=3,
+        )
+    with pytest.raises(ValueError, match="version"):
+        resolve_kaggle_source(
+            selected,
+            owner="owner",
+            model_slug="Llama-FalsifyRL-AutoScientist",
+            model_version=2,
+        )
+
+
+def test_kaggle_report_must_match_selected_release_identity() -> None:
+    selected = _selected_release_record()
+    report = {
+        "example_count": 640,
+        "prediction_mode": "commit_verified_colab_evidence",
+        "release_identity": selected["identity"],
+        "base_metrics": {"verdict_macro_f1": 0.1},
+        "adapted_metrics": {"verdict_macro_f1": 0.9, "json_validity": 1.0},
+    }
+    verify_kaggle_evaluation_report(report, selected)
+
+    report["release_identity"] = {
+        **selected["identity"],
+        "autoscientist_run_id": "qwen-run",
+    }
+    with pytest.raises(RuntimeError, match="identity"):
+        verify_kaggle_evaluation_report(report, selected)
 
 
 def test_kaggle_kernel_status_is_polled_until_complete(

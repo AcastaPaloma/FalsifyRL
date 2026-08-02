@@ -179,7 +179,7 @@ from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoModelForMultimodalLM, AutoTokenizer
 
 adapter_candidates = list(INPUT_ROOT.rglob("adapter_config.json"))
-assert adapter_candidates, "Attach the public FalsifyRL Kaggle Model"
+assert len(adapter_candidates) == 1, "Attach exactly one public FalsifyRL Kaggle Model"
 ADAPTER_DIR = adapter_candidates[0].parent
 adapter_config = json.loads((ADAPTER_DIR / "adapter_config.json").read_text())
 BASE_MODEL_ID = adapter_config["base_model_name_or_path"]
@@ -188,6 +188,7 @@ print("base model:", BASE_MODEL_ID)
 
 BASE_PREDICTION_SOURCE = ADAPTER_DIR / "falsifyrl-base-test-predictions.jsonl"
 ADAPTED_PREDICTION_SOURCE = ADAPTER_DIR / "falsifyrl-adapted-test-predictions.jsonl"
+ADAPTER_WEIGHTS = ADAPTER_DIR / "adapter_model.safetensors"
 RELEASE_MANIFEST = json.loads((ADAPTER_DIR / "release-manifest.json").read_text())
 
 def file_sha256(path):
@@ -197,10 +198,24 @@ def file_sha256(path):
             digest.update(chunk)
     return digest.hexdigest()
 
-for prediction_path in (BASE_PREDICTION_SOURCE, ADAPTED_PREDICTION_SOURCE):
+for prediction_path in (
+    BASE_PREDICTION_SOURCE,
+    ADAPTED_PREDICTION_SOURCE,
+    ADAPTER_WEIGHTS,
+):
     assert RELEASE_MANIFEST["files"][prediction_path.name]["sha256"] == file_sha256(
         prediction_path
     )
+RELEASE_IDENTITY = {
+    "autoscientist_run_id": RELEASE_MANIFEST["autoscientist_run_id"],
+    "base_model_id": RELEASE_MANIFEST["base_model_id"],
+    "adapter_sha256": RELEASE_MANIFEST["files"][ADAPTER_WEIGHTS.name]["sha256"],
+    "base_predictions_sha256": RELEASE_MANIFEST["files"][BASE_PREDICTION_SOURCE.name]["sha256"],
+    "adapted_predictions_sha256": RELEASE_MANIFEST["files"][
+        ADAPTED_PREDICTION_SOURCE.name
+    ]["sha256"],
+}
+assert RELEASE_IDENTITY["base_model_id"] == BASE_MODEL_ID
 
 USE_LIVE_INFERENCE = os.environ.get("FALSIFYRL_LIVE_INFERENCE") == "1"
 if not USE_LIVE_INFERENCE:
@@ -358,6 +373,7 @@ report = {
         "base": file_sha256(base_prediction_path),
         "adapted": file_sha256(adapted_prediction_path),
     },
+    "release_identity": RELEASE_IDENTITY,
     "example_count": MAX_EXAMPLES,
     "base_metrics": base_metrics,
     "adapted_metrics": adapted_metrics,
