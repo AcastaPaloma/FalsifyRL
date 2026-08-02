@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import pytest
 
 from falsifyrl.autoscientist import AutoScientistPlan, WorkflowState
 from falsifyrl.dataset import DatasetBuildConfig, build_cases
+from scripts import finalize_external_evaluation
 from scripts.finalize_external_evaluation import (
     evaluate_exact_predictions,
     finalize,
@@ -197,3 +199,49 @@ def test_staged_evidence_is_bound_to_exact_run_and_files(tmp_path: Path) -> None
             adapter_weights=adapter,
             dataset_manifest=dataset_manifest,
         )
+
+
+def test_main_loads_dotenv_before_reading_staging_token(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = WorkflowState(
+        plan=AutoScientistPlan(source="file", local_file="train.jsonl"),
+        autoscientist_run_id="run-qwen",
+    )
+    state_path = tmp_path / "workflow.json"
+    state.save(state_path)
+    args = finalize_external_evaluation.argparse.Namespace(
+        state=state_path,
+        base_predictions=None,
+        adapted_predictions=None,
+        staging_repo_id="owner/private-staging",
+        staging_revision="a" * 40,
+        adapter_weights=tmp_path / "adapter_model.safetensors",
+        dataset_manifest=tmp_path / "dataset-manifest.json",
+        output_dir=tmp_path / "output",
+        submission_manifest=tmp_path / "submission.json",
+    )
+    captured: dict[str, str] = {}
+
+    def fake_load_dotenv() -> bool:
+        os.environ["HF_TOKEN"] = "loaded-from-dotenv"
+        return True
+
+    def fake_download(**kwargs: object) -> Path:
+        captured["token"] = str(kwargs["token"])
+        raise RuntimeError("stop after token capture")
+
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.setattr(finalize_external_evaluation, "load_dotenv", fake_load_dotenv)
+    monkeypatch.setattr(finalize_external_evaluation, "parse_args", lambda: args)
+    monkeypatch.setattr(
+        finalize_external_evaluation,
+        "download_staged_evidence",
+        fake_download,
+    )
+
+    with pytest.raises(RuntimeError, match="stop after token capture"):
+        finalize_external_evaluation.main()
+
+    assert captured["token"] == "loaded-from-dotenv"

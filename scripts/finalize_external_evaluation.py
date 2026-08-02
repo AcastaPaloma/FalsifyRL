@@ -7,6 +7,8 @@ import os
 import shutil
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 from falsifyrl.autoscientist import WorkflowState
 from falsifyrl.dataset import DatasetBuildConfig, build_cases
 from falsifyrl.evaluation import evaluate_completions, load_prediction_jsonl
@@ -265,6 +267,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    load_dotenv()
     args = parse_args()
     base_predictions = args.base_predictions
     adapted_predictions = args.adapted_predictions
