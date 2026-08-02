@@ -11,6 +11,8 @@ What if an RL agent maximizes its reward by doing the wrong thing—and the eval
 For the Adaption Labs AutoScientist Challenge, I built **FalsifyRL**: an evidence-grounded critic
 for reward hacking in embodied, multi-agent reinforcement learning.
 
+Built for @adaption-labs.
+
 Each example contains a task specification, a declarative proxy reward, and an episode trace. The
 critic returns a strict JSON diagnosis with responsible agents, evidence steps, a counterexample,
 and an executable reward patch.
@@ -46,7 +48,7 @@ Falsify reward functions before your robots exploit them.
 
 Post 1:
 
-> I built FalsifyRL for the @{{ADAPTION_X_HANDLE}} AutoScientist Challenge: a critic that finds
+> I built FalsifyRL for the @adaption_ai AutoScientist Challenge: a critic that finds
 > reward exploits in embodied multi-agent RL, identifies responsible agents, and emits executable
 > repairs.
 >
