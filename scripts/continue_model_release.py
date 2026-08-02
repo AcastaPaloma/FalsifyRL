@@ -244,6 +244,11 @@ def parse_args() -> argparse.Namespace:
         default=Path("outputs/falsifyrl_seed_v1/test.jsonl"),
     )
     parser.add_argument(
+        "--base-predictions",
+        type=Path,
+        required=True,
+    )
+    parser.add_argument(
         "--model-predictions",
         type=Path,
         default=Path("outputs/evaluation/falsifyrl-adapted-test-predictions.jsonl"),
@@ -309,6 +314,8 @@ def main() -> None:
         autoscientist_run_id=str(state.autoscientist_run_id),
         best_win_rate=float(state.best_win_rate),
         evaluation_report=args.comparison,
+        base_predictions=args.base_predictions,
+        adapted_predictions=args.model_predictions,
         model_card_template=args.model_card_template,
         license_path=args.model_license_file,
     )

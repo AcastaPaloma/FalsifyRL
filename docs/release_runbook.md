@@ -111,6 +111,7 @@ license metadata unset rather than claiming Apache 2.0. The bundled license rema
   --checkpoint outputs/autoscientist/best-checkpoint.tgz `
   --adapter-dir "outputs/evaluation/$run/release-adapter" `
   --comparison "outputs/evaluation/$run/final/comparison.json" `
+  --base-predictions "outputs/evaluation/$run/final/staged-evidence/falsifyrl-base-test-predictions.jsonl" `
   --model-predictions "outputs/evaluation/$run/final/staged-evidence/falsifyrl-adapted-test-predictions.jsonl" `
   --model-bundle "artifacts/release/$run/model" `
   --space-bundle "artifacts/release/$run/space" `
@@ -154,10 +155,10 @@ prediction after the Space finishes building.
 ## Publish the held-out Kaggle notebook
 
 After the adapted dataset and model exist on Kaggle, stage the notebook with both resources
-declared as immutable inputs. Because the selected Llama base weights are gated on Hugging Face,
-first create a private Kaggle notebook secret named `HF_TOKEN` with read access to
-`meta-llama/Llama-3.2-3B-Instruct`. The notebook reads the secret without printing it; it never
-stores the token in code or outputs.
+declared as immutable inputs. The public CPU run recomputes all compact metrics from the complete
+Colab prediction evidence bundled with the hash-verified adapter, so it does not need gated base
+weights or a secret. A copied GPU notebook can optionally set `FALSIFYRL_LIVE_INFERENCE=1` and use
+a private `HF_TOKEN` Kaggle secret to regenerate those predictions.
 
 ```powershell
 .\.venv\Scripts\python.exe scripts/continue_kaggle_notebook.py `

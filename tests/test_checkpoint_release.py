@@ -55,6 +55,8 @@ def test_checkpoint_preparation_extracts_and_audits_adapter(tmp_path: Path) -> N
     report = tmp_path / "evaluation.json"
     template = tmp_path / "README.template.md"
     license_file = tmp_path / "LICENSE"
+    base_predictions = tmp_path / "base.jsonl"
+    adapted_predictions = tmp_path / "adapted.jsonl"
     _checkpoint(archive)
     report.write_text('{"composite_score":0.8}', encoding="utf-8")
     template.write_text(
@@ -63,6 +65,8 @@ def test_checkpoint_preparation_extracts_and_audits_adapter(tmp_path: Path) -> N
         encoding="utf-8",
     )
     license_file.write_text("MIT", encoding="utf-8")
+    base_predictions.write_text('{"example_id":"a","completion":"{}"}\n')
+    adapted_predictions.write_text('{"example_id":"a","completion":"{}"}\n')
 
     manifest = prepare_model_bundle(
         archive,
@@ -72,6 +76,8 @@ def test_checkpoint_preparation_extracts_and_audits_adapter(tmp_path: Path) -> N
         autoscientist_run_id="run-123",
         best_win_rate=0.81,
         evaluation_report=report,
+        base_predictions=base_predictions,
+        adapted_predictions=adapted_predictions,
         model_card_template=template,
         license_path=license_file,
     )
@@ -79,6 +85,12 @@ def test_checkpoint_preparation_extracts_and_audits_adapter(tmp_path: Path) -> N
     assert (bundle / "adapter_model.safetensors").read_bytes() == b"safe-tensor-bytes"
     assert manifest["best_win_rate"] == 0.81
     assert "adapter_model.safetensors" in manifest["files"]
+    assert manifest["files"]["falsifyrl-base-test-predictions.jsonl"][
+        "sha256"
+    ]
+    assert manifest["files"]["falsifyrl-adapted-test-predictions.jsonl"][
+        "sha256"
+    ]
 
 
 def test_checkpoint_can_be_extracted_for_prepublication_evaluation(

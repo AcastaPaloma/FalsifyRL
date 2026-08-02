@@ -162,14 +162,18 @@ print("reward only:", compact_metrics(reward_only))
         ),
         _markdown(
             """
-## Load the public AutoScientist adapter
+## Verify the public AutoScientist adapter and its evaluation evidence
 
 Attach the Kaggle Model `Llama-FalsifyRL-AutoScientist/pytorch/lora`. The adapter config names the
-exact base model selected by AutoScientist.
+exact base model selected by AutoScientist. The public run recomputes metrics from the two complete,
+hash-bound prediction files generated on Colab. Set `FALSIFYRL_LIVE_INFERENCE=1` in a GPU copy of
+this notebook to regenerate them from the gated base weights instead.
 """
         ),
         _code(
             """
+import hashlib
+
 import torch
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoModelForMultimodalLM, AutoTokenizer
@@ -182,24 +186,45 @@ BASE_MODEL_ID = adapter_config["base_model_name_or_path"]
 print("adapter:", ADAPTER_DIR)
 print("base model:", BASE_MODEL_ID)
 
-tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_ID)
-tokenizer.padding_side = "left"
-if tokenizer.pad_token_id is None:
-    tokenizer.pad_token = tokenizer.eos_token
-model_kwargs = {
-    "torch_dtype": (
-        torch.bfloat16
-        if torch.cuda.is_available() and torch.cuda.is_bf16_supported()
-        else torch.float16 if torch.cuda.is_available() else torch.float32
-    ),
-    "device_map": "auto",
-    "low_cpu_mem_usage": True,
-}
-try:
-    base_model = AutoModelForCausalLM.from_pretrained(BASE_MODEL_ID, **model_kwargs)
-except (TypeError, ValueError):
-    base_model = AutoModelForMultimodalLM.from_pretrained(BASE_MODEL_ID, **model_kwargs)
-base_model.eval()
+BASE_PREDICTION_SOURCE = ADAPTER_DIR / "falsifyrl-base-test-predictions.jsonl"
+ADAPTED_PREDICTION_SOURCE = ADAPTER_DIR / "falsifyrl-adapted-test-predictions.jsonl"
+RELEASE_MANIFEST = json.loads((ADAPTER_DIR / "release-manifest.json").read_text())
+
+def file_sha256(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+for prediction_path in (BASE_PREDICTION_SOURCE, ADAPTED_PREDICTION_SOURCE):
+    assert RELEASE_MANIFEST["files"][prediction_path.name]["sha256"] == file_sha256(
+        prediction_path
+    )
+
+USE_LIVE_INFERENCE = os.environ.get("FALSIFYRL_LIVE_INFERENCE") == "1"
+if not USE_LIVE_INFERENCE:
+    assert BASE_PREDICTION_SOURCE.is_file()
+    assert ADAPTED_PREDICTION_SOURCE.is_file()
+else:
+    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_ID)
+    tokenizer.padding_side = "left"
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    model_kwargs = {
+        "torch_dtype": (
+            torch.bfloat16
+            if torch.cuda.is_available() and torch.cuda.is_bf16_supported()
+            else torch.float16 if torch.cuda.is_available() else torch.float32
+        ),
+        "device_map": "auto",
+        "low_cpu_mem_usage": True,
+    }
+    try:
+        base_model = AutoModelForCausalLM.from_pretrained(BASE_MODEL_ID, **model_kwargs)
+    except (TypeError, ValueError):
+        base_model = AutoModelForMultimodalLM.from_pretrained(BASE_MODEL_ID, **model_kwargs)
+    base_model.eval()
 """
         ),
         _code(
@@ -260,19 +285,37 @@ def predict(model, prompts, batch_size):
         print(f"generated {len(predictions)}/{len(prompts)}")
     return predictions
 
+def load_predictions(path):
+    values = {
+        item["example_id"]: item["completion"]
+        for item in (
+            json.loads(line) for line in path.read_text().splitlines() if line.strip()
+        )
+    }
+    expected_ids = {row["example_id"] for row in rows}
+    assert set(values) == expected_ids
+    return [values[row["example_id"]] for row in rows]
+
 MAX_EXAMPLES = int(os.environ.get("FALSIFYRL_MAX_EXAMPLES", len(rows)))
 BATCH_SIZE = int(os.environ.get("FALSIFYRL_BATCH_SIZE", 1))
 prompts = [row["prompt"] for row in rows[:MAX_EXAMPLES]]
-base_predictions = predict(base_model, prompts, BATCH_SIZE)
+if USE_LIVE_INFERENCE:
+    base_predictions = predict(base_model, prompts, BATCH_SIZE)
+else:
+    assert len(rows) == MAX_EXAMPLES, "cached evidence is always the exact 640-case split"
+    base_predictions = load_predictions(BASE_PREDICTION_SOURCE)
 base_metrics = compact_metrics(base_predictions)
 base_metrics
 """
         ),
         _code(
             """
-model = PeftModel.from_pretrained(base_model, ADAPTER_DIR)
-model.eval()
-adapted_predictions = predict(model, prompts, BATCH_SIZE)
+if USE_LIVE_INFERENCE:
+    model = PeftModel.from_pretrained(base_model, ADAPTER_DIR)
+    model.eval()
+    adapted_predictions = predict(model, prompts, BATCH_SIZE)
+else:
+    adapted_predictions = load_predictions(ADAPTED_PREDICTION_SOURCE)
 adapted_metrics = compact_metrics(adapted_predictions)
 {
     "base": base_metrics,
@@ -308,6 +351,13 @@ report = {
     "dataset_test_path": str(TEST_PATH),
     "adapter_path": str(ADAPTER_DIR),
     "base_model_id": BASE_MODEL_ID,
+    "prediction_mode": (
+        "live_inference" if USE_LIVE_INFERENCE else "commit_verified_colab_evidence"
+    ),
+    "prediction_sha256": {
+        "base": file_sha256(base_prediction_path),
+        "adapted": file_sha256(adapted_prediction_path),
+    },
     "example_count": MAX_EXAMPLES,
     "base_metrics": base_metrics,
     "adapted_metrics": adapted_metrics,

@@ -648,6 +648,8 @@ def prepare_model_bundle(
     autoscientist_run_id: str,
     best_win_rate: float,
     evaluation_report: str | Path,
+    base_predictions: str | Path | None = None,
+    adapted_predictions: str | Path | None = None,
     model_card_template: str | Path = "release/model/README.md",
     license_path: str | Path = "release/model/LICENSE",
 ) -> dict[str, Any]:
@@ -675,6 +677,20 @@ def prepare_model_bundle(
         raise FileNotFoundError(report_source)
     report_target = destination / "evaluation-report.json"
     shutil.copy2(report_source, report_target)
+    prediction_sources = {
+        "falsifyrl-base-test-predictions.jsonl": base_predictions,
+        "falsifyrl-adapted-test-predictions.jsonl": adapted_predictions,
+    }
+    provided_predictions = [path is not None for path in prediction_sources.values()]
+    if any(provided_predictions) and not all(provided_predictions):
+        raise ValueError("base and adapted prediction evidence must be provided together")
+    for filename, source in prediction_sources.items():
+        if source is None:
+            continue
+        source_path = Path(source)
+        if not source_path.is_file():
+            raise FileNotFoundError(source_path)
+        shutil.copy2(source_path, destination / filename)
     shutil.copy2(license_path, destination / "LICENSE")
     render_model_card(
         model_card_template,

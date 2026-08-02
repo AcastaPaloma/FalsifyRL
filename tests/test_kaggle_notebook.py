@@ -43,6 +43,9 @@ def test_kaggle_notebook_contains_reproducibility_contract() -> None:
     assert "tokenizer.batch_decode" in rendered
     assert 'UserSecretsClient().get_secret("HF_TOKEN")' in rendered
     assert "Llama-FalsifyRL-AutoScientist/pytorch/lora" in rendered
+    assert "commit_verified_colab_evidence" in rendered
+    assert "load_predictions(BASE_PREDICTION_SOURCE)" in rendered
+    assert 'RELEASE_MANIFEST["files"][prediction_path.name]["sha256"]' in rendered
 
 
 def test_kaggle_release_declares_exact_adapted_dataset_and_model(

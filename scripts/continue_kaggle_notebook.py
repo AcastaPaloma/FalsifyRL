@@ -212,8 +212,6 @@ def main() -> None:
             "push",
             "-p",
             str(args.bundle_dir.resolve()),
-            "--accelerator",
-            "NvidiaTeslaP100",
             "--timeout",
             "7200",
         ],
@@ -244,6 +242,8 @@ def main() -> None:
     report = json.loads(report_path.read_text(encoding="utf-8"))
     if report.get("example_count") != 640:
         raise RuntimeError("Kaggle evaluation did not run all 640 held-out examples")
+    if report.get("prediction_mode") != "commit_verified_colab_evidence":
+        raise RuntimeError("public Kaggle run did not use the released evidence bundle")
     base = report["base_metrics"]
     adapted = report["adapted_metrics"]
     if adapted["json_validity"] < 0.95:
