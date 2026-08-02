@@ -38,7 +38,9 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def test_llama_release_configuration_fails_closed_on_apache_defaults() -> None:
+def test_llama_release_configuration_fails_closed_on_apache_defaults(
+    tmp_path: Path,
+) -> None:
     with pytest.raises(ValueError, match="slug must begin"):
         validate_model_release_configuration(
             base_model_id="meta-llama/Llama-3.2-3B-Instruct",
@@ -48,13 +50,34 @@ def test_llama_release_configuration_fails_closed_on_apache_defaults() -> None:
             kaggle_license_name="Apache 2.0",
         )
 
+    license_file = tmp_path / "LLAMA-3.2-LICENSE.txt"
+    license_file.write_text(
+        "LLAMA 3.2 COMMUNITY LICENSE AGREEMENT\n"
+        "1. License Rights and Redistribution.\n"
+        "Meta Platforms, Inc.\n",
+        encoding="utf-8",
+    )
     validate_model_release_configuration(
         base_model_id="meta-llama/Llama-3.2-3B-Instruct",
         model_slug="Llama-FalsifyRL-AutoScientist",
         model_card_template=Path("release/model/README.llama3.2.md"),
-        model_license_file=Path("outputs/licenses/Llama-3.2-LICENSE.txt"),
+        model_license_file=license_file,
         kaggle_license_name=None,
     )
+
+
+def test_llama_release_rejects_an_unrelated_license(tmp_path: Path) -> None:
+    license_file = tmp_path / "LICENSE"
+    license_file.write_text("Apache License 2.0\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="expected Llama 3.2"):
+        validate_model_release_configuration(
+            base_model_id="meta-llama/Llama-3.2-3B-Instruct",
+            model_slug="Llama-FalsifyRL-AutoScientist",
+            model_card_template=Path("release/model/README.llama3.2.md"),
+            model_license_file=license_file,
+            kaggle_license_name=None,
+        )
 
 
 def _fake_dataset(source: Path) -> None:

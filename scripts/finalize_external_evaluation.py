@@ -253,7 +253,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-predictions", type=Path)
     parser.add_argument("--adapted-predictions", type=Path)
     parser.add_argument("--staging-repo-id")
-    parser.add_argument("--staging-revision")
+    parser.add_argument(
+        "--evidence-revision",
+        help="immutable private-staging commit containing evaluation evidence",
+    )
+    parser.add_argument(
+        "--checkpoint-revision",
+        help="immutable private-staging commit recorded by the checkpoint manifest",
+    )
     parser.add_argument("--adapter-weights", type=Path, required=True)
     parser.add_argument(
         "--dataset-manifest",
@@ -275,14 +282,17 @@ def main() -> None:
     base_predictions = args.base_predictions
     adapted_predictions = args.adapted_predictions
     if args.staging_repo_id:
-        if not args.staging_revision:
-            raise ValueError("--staging-revision is required with --staging-repo-id")
+        if not args.evidence_revision or not args.checkpoint_revision:
+            raise ValueError(
+                "--evidence-revision and --checkpoint-revision are required "
+                "with --staging-repo-id"
+            )
         state = WorkflowState.load(args.state)
         if not state.autoscientist_run_id:
             raise ValueError("workflow state has no AutoScientist run ID")
         staged_dir = download_staged_evidence(
             repo_id=args.staging_repo_id,
-            revision=args.staging_revision,
+            revision=args.evidence_revision,
             run_id=state.autoscientist_run_id,
             destination=args.output_dir / "staged-evidence",
             token=os.environ.get("HF_TOKEN", ""),
@@ -292,7 +302,7 @@ def main() -> None:
             state_path=args.state,
             adapter_weights=args.adapter_weights,
             dataset_manifest=args.dataset_manifest,
-            checkpoint_revision=args.staging_revision,
+            checkpoint_revision=args.checkpoint_revision,
         )
     if base_predictions is None or adapted_predictions is None:
         raise ValueError(

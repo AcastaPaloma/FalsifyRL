@@ -228,7 +228,8 @@ def test_main_loads_dotenv_before_reading_staging_token(
         base_predictions=None,
         adapted_predictions=None,
         staging_repo_id="owner/private-staging",
-        staging_revision="a" * 40,
+        evidence_revision="b" * 40,
+        checkpoint_revision="a" * 40,
         adapter_weights=tmp_path / "adapter_model.safetensors",
         dataset_manifest=tmp_path / "dataset-manifest.json",
         output_dir=tmp_path / "output",
@@ -242,6 +243,7 @@ def test_main_loads_dotenv_before_reading_staging_token(
 
     def fake_download(**kwargs: object) -> Path:
         captured["token"] = str(kwargs["token"])
+        captured["revision"] = str(kwargs["revision"])
         raise RuntimeError("stop after token capture")
 
     monkeypatch.delenv("HF_TOKEN", raising=False)
@@ -257,3 +259,64 @@ def test_main_loads_dotenv_before_reading_staging_token(
         finalize_external_evaluation.main()
 
     assert captured["token"] == "loaded-from-dotenv"
+    assert captured["revision"] == "b" * 40
+
+
+def test_main_keeps_evidence_and_checkpoint_revisions_distinct(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = WorkflowState(
+        plan=AutoScientistPlan(source="file", local_file="train.jsonl"),
+        autoscientist_run_id="run-qwen",
+    )
+    state_path = tmp_path / "workflow.json"
+    state.save(state_path)
+    evidence_revision = "b" * 40
+    checkpoint_revision = "a" * 40
+    args = finalize_external_evaluation.argparse.Namespace(
+        state=state_path,
+        base_predictions=None,
+        adapted_predictions=None,
+        staging_repo_id="owner/private-staging",
+        evidence_revision=evidence_revision,
+        checkpoint_revision=checkpoint_revision,
+        adapter_weights=tmp_path / "adapter_model.safetensors",
+        dataset_manifest=tmp_path / "dataset-manifest.json",
+        output_dir=tmp_path / "output",
+        submission_manifest=tmp_path / "submission.json",
+    )
+    staged_dir = tmp_path / "staged"
+    captured: dict[str, str] = {}
+
+    def fake_download(**kwargs: object) -> Path:
+        captured["evidence_revision"] = str(kwargs["revision"])
+        return staged_dir
+
+    def fake_verify(**kwargs: object) -> tuple[Path, Path]:
+        captured["checkpoint_revision"] = str(kwargs["checkpoint_revision"])
+        return tmp_path / "base.jsonl", tmp_path / "adapted.jsonl"
+
+    def fake_finalize(**_: object) -> dict:
+        return {"ok": True}
+
+    monkeypatch.setattr(finalize_external_evaluation, "load_dotenv", lambda: True)
+    monkeypatch.setattr(finalize_external_evaluation, "parse_args", lambda: args)
+    monkeypatch.setattr(
+        finalize_external_evaluation,
+        "download_staged_evidence",
+        fake_download,
+    )
+    monkeypatch.setattr(
+        finalize_external_evaluation,
+        "verify_staged_evidence",
+        fake_verify,
+    )
+    monkeypatch.setattr(finalize_external_evaluation, "finalize", fake_finalize)
+
+    finalize_external_evaluation.main()
+
+    assert captured == {
+        "evidence_revision": evidence_revision,
+        "checkpoint_revision": checkpoint_revision,
+    }

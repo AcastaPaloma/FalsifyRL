@@ -14,6 +14,7 @@ from falsifyrl.autoscientist import WorkflowState
 from falsifyrl.demo import prepare_space_bundle
 from falsifyrl.release import (
     canonicalize_adapter_base_model,
+    extract_adapter_checkpoint,
     prepare_model_bundle,
     publish_huggingface_model,
     publish_huggingface_space,
@@ -174,6 +175,22 @@ def validate_model_release_configuration(
         raise ValueError("Llama release requires the Llama-specific model card")
     if model_license_file == Path("release/model/LICENSE"):
         raise ValueError("Llama release requires the Meta community license file")
+    if not model_license_file.is_file():
+        raise FileNotFoundError(model_license_file)
+    license_text = model_license_file.read_text(
+        encoding="utf-8",
+        errors="replace",
+    ).casefold()
+    required_license_markers = (
+        "llama 3.2 community license agreement",
+        "license rights and redistribution",
+        "meta platforms",
+    )
+    if not all(marker in license_text for marker in required_license_markers):
+        raise ValueError(
+            "Llama release license file does not contain the expected "
+            "Llama 3.2 Community License terms"
+        )
     if kaggle_license_name == "Apache 2.0":
         raise ValueError("Llama release cannot use Apache 2.0 Kaggle metadata")
 
@@ -194,6 +211,12 @@ def parse_args() -> argparse.Namespace:
         "--checkpoint",
         type=Path,
         default=Path("outputs/autoscientist/best-checkpoint.tgz"),
+    )
+    parser.add_argument(
+        "--adapter-dir",
+        type=Path,
+        required=True,
+        help="empty run-scoped directory used to verify the selected checkpoint",
     )
     parser.add_argument(
         "--comparison",
@@ -261,16 +284,8 @@ def main() -> None:
         timeout_seconds=args.timeout_seconds,
     )
     dataset_repo_id = f"{huggingface_owner}/falsifyrl-adapted"
-    prepare_space_bundle(
-        "space",
-        args.test_jsonl,
-        args.space_bundle,
-        prediction_jsonl=args.model_predictions,
-    )
-    base_model_id = resolve_evaluated_adapter_base_model(
-        Path("outputs/autoscientist/extracted-checkpoint"),
-        state,
-    )
+    extract_adapter_checkpoint(args.checkpoint, args.adapter_dir)
+    base_model_id = resolve_evaluated_adapter_base_model(args.adapter_dir, state)
     kaggle_license_name = args.kaggle_license_name or None
     validate_model_release_configuration(
         base_model_id=base_model_id,
@@ -278,6 +293,12 @@ def main() -> None:
         model_card_template=args.model_card_template,
         model_license_file=args.model_license_file,
         kaggle_license_name=kaggle_license_name,
+    )
+    prepare_space_bundle(
+        "space",
+        args.test_jsonl,
+        args.space_bundle,
+        prediction_jsonl=args.model_predictions,
     )
 
     model_manifest = prepare_model_bundle(

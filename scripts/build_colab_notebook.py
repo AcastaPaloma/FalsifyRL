@@ -55,6 +55,7 @@ comparison. Add `HF_TOKEN` in Colab Secrets for private staging or a gated base 
     ]
     runtime_config = [
         "import os\n",
+        'os.environ.pop("FALSIFYRL_MAX_EXAMPLES", None)\n',
         f'os.environ["FALSIFYRL_MAX_NEW_TOKENS"] = "{max_new_tokens}"\n',
         f'os.environ["FALSIFYRL_BATCH_SIZE"] = "{batch_size}"\n',
         f'os.environ["FALSIFYRL_USE_4BIT"] = "{str(use_4bit).lower()}"\n',

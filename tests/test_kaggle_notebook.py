@@ -134,6 +134,7 @@ def test_colab_notebook_keeps_4bit_opt_in_by_default() -> None:
 
     assert 'FALSIFYRL_USE_4BIT"] = "false"' in install_cell
     assert '"bitsandbytes>=0.46,<1"' not in install_cell
+    assert 'os.environ.pop("FALSIFYRL_MAX_EXAMPLES", None)' in install_cell
 
 
 def test_kaggle_run_waits_for_hash_verified_model_release(tmp_path: Path) -> None:
