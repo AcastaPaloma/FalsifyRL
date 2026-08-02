@@ -134,13 +134,12 @@ base-model mismatch, publishes the exact same adapter bytes to both hosts, and v
 hashes. The resulting Kaggle model handle is
 `kuanyiwang/Llama-FalsifyRL-AutoScientist/pytorch/lora`.
 
-The release transaction stages the Hugging Face model privately, uploads Kaggle and immediately
-requests private visibility, then verifies both adapter hashes with authenticated clients before
-promoting either model. Hugging Face supports private staging atomically. Kaggle's upload API does
-not expose a visibility argument, so its post-upload privacy change is best-effort and may leave a
-brief exposure window if Kaggle changes its default. Any later failure attempts to restore the
-Hugging Face model/Space and Kaggle model to private visibility; inspect the raised rollback details
-before retrying.
+The release transaction stages the Hugging Face model privately. KaggleHub creates new models
+private, and the release verifies both adapter hashes with authenticated clients before promoting
+either model. Kaggle's upload API does not expose a visibility argument, so the publisher also
+requests the intended visibility explicitly. Any later failure attempts to restore the Hugging Face
+model/Space and Kaggle model to private visibility; inspect the raised rollback details before
+retrying.
 
 If Kaggle's authenticated `UpdateModel` endpoint returns HTTP 403 after the exact model
 version has uploaded, keep both model repositories private and make that existing Kaggle model
@@ -149,6 +148,33 @@ version. Resume without re-uploading by running `scripts/resume_model_release.py
 populated run-scoped model and Space bundles. The resume path verifies both remote adapter hashes
 and the anonymous Kaggle page before promoting either Hugging Face artifact, and it never calls
 Kaggle's rejected visibility endpoint.
+
+For the selected run, after making **version 1 of the existing model** public in Kaggle Settings:
+
+```powershell
+$run = "255e1c38-a488-45ea-ac90-21e579d6c119"
+
+.\.venv\Scripts\python.exe scripts/resume_model_release.py `
+  --state "outputs/evaluation/$run/workflow.json" `
+  --checkpoint outputs/autoscientist/best-checkpoint.tgz `
+  --adapter-dir "outputs/evaluation/$run/release-adapter-resume-20260802" `
+  --checkpoint-manifest "outputs/evaluation/$run/checkpoint-manifest.json" `
+  --comparison "outputs/evaluation/$run/final/comparison.json" `
+  --submission-manifest outputs/submission/manifest.json `
+  --model-bundle "artifacts/release/$run/model-rerun-20260802" `
+  --space-bundle "artifacts/release/$run/space-rerun-20260802" `
+  --base-predictions "outputs/evaluation/$run/final/staged-evidence/falsifyrl-base-test-predictions.jsonl" `
+  --model-predictions "outputs/evaluation/$run/final/staged-evidence/falsifyrl-adapted-test-predictions.jsonl" `
+  --huggingface-owner KuanKuanKuan `
+  --kaggle-owner kuanyiwang `
+  --model-slug Llama-FalsifyRL-AutoScientist `
+  --kaggle-model-version 1 `
+  --selected-release-record "outputs/evaluation/$run/selected-release.json" `
+  --space-slug falsifyrl-llama
+```
+
+The resume adapter directory must be new and empty. The script refuses an existing selected-release
+record and never calls either model uploader, so it cannot create Kaggle version 2.
 
 ## Publish the interactive Space
 

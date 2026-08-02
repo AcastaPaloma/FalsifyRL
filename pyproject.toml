@@ -24,6 +24,8 @@ platforms = [
 release = [
   "huggingface-hub>=1.26,<2",
   "kagglehub>=1.0,<2",
+  "kagglesdk>=0.1.22,<0.1.24; python_version < '3.11'",
+  "kagglesdk>=0.1.35,<1; python_version >= '3.11'",
   "python-dotenv>=1.0,<2",
   "zstandard>=0.23,<1",
 ]
