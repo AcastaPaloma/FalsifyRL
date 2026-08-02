@@ -100,3 +100,12 @@ Recommended field mapping:
 
 Copy values only from the audited `outputs/submission/manifest.json`. Save the form confirmation
 page or email under the ignored `outputs/submission/` directory.
+
+After all public links have passed the audit, render the approval-ready social drafts without
+copying metrics or URLs by hand:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/render_social_launch.py
+```
+
+This writes ignored `outputs/submission/social_launch_ready.md`; it does not post anything.
