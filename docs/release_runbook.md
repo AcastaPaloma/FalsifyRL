@@ -142,6 +142,14 @@ brief exposure window if Kaggle changes its default. Any later failure attempts 
 Hugging Face model/Space and Kaggle model to private visibility; inspect the raised rollback details
 before retrying.
 
+If Kaggle's authenticated `UpdateModel` endpoint returns HTTP 403 after the exact model
+version has uploaded, keep both model repositories private and make that existing Kaggle model
+public from its Settings page. Do not rerun the uploader, because that would create a second
+version. Resume without re-uploading by running `scripts/resume_model_release.py` against the
+populated run-scoped model and Space bundles. The resume path verifies both remote adapter hashes
+and the anonymous Kaggle page before promoting either Hugging Face artifact, and it never calls
+Kaggle's rejected visibility endpoint.
+
 ## Publish the interactive Space
 
 Prepare the Space bundle from held-out examples:
