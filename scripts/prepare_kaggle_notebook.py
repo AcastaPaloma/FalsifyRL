@@ -16,12 +16,15 @@ def prepare_kaggle_notebook(
     notebook_path: Path,
     metadata_template: Path,
     output_dir: Path,
+    model_slug: str = "falsifyrl-autoscientist",
     model_version: int = 1,
 ) -> dict[str, Any]:
     if not owner.strip() or owner == "OWNER":
         raise ValueError("a real Kaggle owner is required")
     if model_version < 1:
         raise ValueError("model version must be positive")
+    if not model_slug.strip():
+        raise ValueError("model slug is required")
     if output_dir.exists() and any(output_dir.iterdir()):
         raise ValueError(f"output directory must be empty: {output_dir}")
 
@@ -29,7 +32,7 @@ def prepare_kaggle_notebook(
     metadata["id"] = f"{owner}/falsifyrl-held-out-evaluation"
     metadata["dataset_sources"] = [f"{owner}/falsifyrl-adapted"]
     metadata["model_sources"] = [
-        f"{owner}/falsifyrl-autoscientist/pytorch/lora/{model_version}"
+        f"{owner}/{model_slug}/pytorch/lora/{model_version}"
     ]
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -46,6 +49,7 @@ def parse_args() -> argparse.Namespace:
         description="Stage the public Kaggle evaluation notebook with exact data/model inputs."
     )
     parser.add_argument("--owner")
+    parser.add_argument("--model-slug", default="falsifyrl-autoscientist")
     parser.add_argument("--model-version", type=int, default=1)
     parser.add_argument(
         "--notebook",
@@ -76,6 +80,7 @@ def main() -> None:
         notebook_path=args.notebook,
         metadata_template=args.metadata_template,
         output_dir=args.output_dir,
+        model_slug=args.model_slug,
         model_version=args.model_version,
     )
     print(json.dumps(metadata, indent=2, sort_keys=True))

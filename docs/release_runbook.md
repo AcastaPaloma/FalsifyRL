@@ -64,9 +64,33 @@ confirm the Hugging Face `autoscientist` config resolves all three splits, and v
 `train.csv` hash matches the workflow state's audited export hash. Use these adapted-dataset URLs in
 the challenge submission.
 
-## Publish the trained model
+## Finalize and publish the trained model
 
-After the best AutoScientist checkpoint is downloaded, prepare a model bundle containing at least:
+The private staging repository uses two different immutable revisions:
+
+- the checkpoint revision recorded when the exact AutoScientist adapter was staged, and
+- the later evidence revision created after Colab uploads all 640 held-out predictions.
+
+Never substitute one for the other. Finalize CPU-side metrics with both revisions and run-scoped
+paths:
+
+```powershell
+$run = "255e1c38-a488-45ea-ac90-21e579d6c119"
+$checkpointRevision = "1db2801bdf26d793eb24fe6071a4f46018a49047"
+$evidenceRevision = "COLAB_EVIDENCE_COMMIT"
+
+.\.venv\Scripts\python.exe scripts/finalize_external_evaluation.py `
+  --state "outputs/evaluation/$run/workflow.json" `
+  --staging-repo-id KuanKuanKuan/falsifyrl-eval-staging `
+  --evidence-revision $evidenceRevision `
+  --checkpoint-revision $checkpointRevision `
+  --adapter-weights "outputs/evaluation/$run/adapter_model.safetensors" `
+  --dataset-manifest artifacts/release/adapted-dataset/release-manifest.json `
+  --output-dir "outputs/evaluation/$run/final" `
+  --submission-manifest outputs/submission/manifest.json
+```
+
+The final model bundle contains at least:
 
 ```text
 README.md
@@ -78,14 +102,32 @@ LICENSE
 ```
 
 The model card must replace all run-specific placeholders before either publisher will proceed.
+For the selected Llama checkpoint, use the genuine Llama 3.2 Community License and leave Kaggle's
+license metadata unset rather than claiming Apache 2.0. The bundled license remains authoritative.
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/publish_model.py huggingface --owner OWNER
-.\.venv\Scripts\python.exe scripts/publish_model.py kaggle --owner OWNER
+.\.venv\Scripts\python.exe scripts/continue_model_release.py `
+  --state "outputs/evaluation/$run/workflow.json" `
+  --checkpoint outputs/autoscientist/best-checkpoint.tgz `
+  --adapter-dir "outputs/evaluation/$run/release-adapter" `
+  --comparison "outputs/evaluation/$run/final/comparison.json" `
+  --model-predictions "outputs/evaluation/$run/final/staged-evidence/falsifyrl-adapted-test-predictions.jsonl" `
+  --model-bundle "artifacts/release/$run/model" `
+  --space-bundle "artifacts/release/$run/space" `
+  --test-jsonl outputs/falsifyrl_seed_v1/test.jsonl `
+  --huggingface-owner KuanKuanKuan `
+  --kaggle-owner kuanyiwang `
+  --model-slug Llama-FalsifyRL-AutoScientist `
+  --space-slug falsifyrl-llama `
+  --model-card-template release/model/README.llama3.2.md `
+  --model-license-file outputs/licenses/Llama-3.2-LICENSE.txt `
+  --kaggle-license-name ""
 ```
 
-The Kaggle model handle is published as
-`OWNER/falsifyrl-autoscientist/pytorch/lora`.
+The script re-extracts the chosen checkpoint into the empty run-scoped adapter directory, rejects a
+base-model mismatch, publishes the exact same adapter bytes to both hosts, and verifies both public
+hashes. The resulting Kaggle model handle is
+`kuanyiwang/Llama-FalsifyRL-AutoScientist/pytorch/lora`.
 
 ## Publish the interactive Space
 
@@ -95,13 +137,14 @@ Prepare the Space bundle from held-out examples:
 .\.venv\Scripts\python.exe scripts/prepare_space.py
 ```
 
-Publish only after the model repository exists:
+The release command above prepares and publishes the cached-prediction Space only after both model
+repositories verify. Verify it separately:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/publish_space.py `
-  --owner OWNER `
-  --base-model-id BASE_MODEL_ID `
-  --model-repo-id OWNER/falsifyrl-autoscientist
+.\.venv\Scripts\python.exe scripts/continue_space_verification.py `
+  --submission-manifest outputs/submission/manifest.json `
+  --examples "artifacts/release/$run/space/examples.json" `
+  --output "outputs/evaluation/$run/space-verification.json"
 ```
 
 The publisher uploads 16 examples representing eight reward-matched control/exploit pairs and sets
@@ -114,11 +157,13 @@ After the adapted dataset and model exist on Kaggle, stage the notebook with bot
 declared as immutable inputs:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/prepare_kaggle_notebook.py --model-version 1
+.\.venv\Scripts\python.exe scripts/prepare_kaggle_notebook.py `
+  --model-slug Llama-FalsifyRL-AutoScientist `
+  --model-version 1
 .\outputs\kaggle-cli-venv\Scripts\kaggle.exe kernels push `
   -p artifacts/release/kaggle-notebook --accelerator NvidiaTeslaP100 --timeout 7200
 ```
 
 If the model is not version 1, pass its actual public version. Do not remove `model_sources` or
 substitute the source dataset: the notebook must run against the exact `falsifyrl-adapted` release
-and exact `falsifyrl-autoscientist/pytorch/lora/<version>` adapter.
+and exact selected `Llama-FalsifyRL-AutoScientist/pytorch/lora/<version>` adapter.

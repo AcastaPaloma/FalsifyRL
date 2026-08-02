@@ -164,6 +164,7 @@ def parse_args() -> argparse.Namespace:
         default=Path("outputs/kaggle-cli-venv/Scripts/kaggle.exe"),
     )
     parser.add_argument("--owner")
+    parser.add_argument("--model-slug", default="falsifyrl-autoscientist")
     parser.add_argument("--model-version", type=int, default=1)
     parser.add_argument("--poll-seconds", type=float, default=30.0)
     parser.add_argument("--timeout-seconds", type=float, default=259_200.0)
@@ -192,6 +193,8 @@ def main() -> None:
             owner,
             "--model-version",
             str(args.model_version),
+            "--model-slug",
+            args.model_slug,
             "--notebook",
             str(args.notebook.resolve()),
             "--metadata-template",

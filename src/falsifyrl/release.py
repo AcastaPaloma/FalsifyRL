@@ -449,7 +449,7 @@ def publish_kaggle_model(
     set_kaggle_model_public(
         owner=owner,
         slug=slug,
-        title="FalsifyRL AutoScientist Reward-Hacking Critic",
+        title=slug.replace("-", " "),
         subtitle="LoRA critic for evidence-grounded diagnosis and executable reward repair",
         description=(
             "Best audited AutoScientist checkpoint trained on the exact FalsifyRL "

@@ -52,12 +52,13 @@ def test_kaggle_release_declares_exact_adapted_dataset_and_model(
         notebook_path=Path("kaggle/falsifyrl_evaluation.ipynb"),
         metadata_template=Path("kaggle/kernel-metadata.template.json"),
         output_dir=output,
+        model_slug="Llama-FalsifyRL-AutoScientist",
         model_version=3,
     )
 
     assert metadata["dataset_sources"] == ["owner/falsifyrl-adapted"]
     assert metadata["model_sources"] == [
-        "owner/falsifyrl-autoscientist/pytorch/lora/3"
+        "owner/Llama-FalsifyRL-AutoScientist/pytorch/lora/3"
     ]
     assert (output / "falsifyrl_evaluation.ipynb").is_file()
     assert (output / "kernel-metadata.json").is_file()
