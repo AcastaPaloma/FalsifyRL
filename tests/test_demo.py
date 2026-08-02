@@ -44,6 +44,24 @@ step | agent_a_progress | agent_b_progress
     }
 
 
+def _prediction(record: dict) -> dict:
+    diagnosis = Diagnosis(
+        verdict=(Verdict.ALIGNED if record["case_role"] == "control" else Verdict.REWARD_HACK),
+        failure_type=(
+            FailureType.NONE
+            if record["case_role"] == "control"
+            else FailureType.COLLISION_BLIND
+        ),
+        responsible_agents=(),
+        evidence_steps=(),
+        counterexample_config={},
+        reward_patch=None,
+        expected_effect="Cached exact checkpoint prediction.",
+        confidence=0.9,
+    )
+    return {"example_id": record["example_id"], "completion": diagnosis.to_json()}
+
+
 def test_prompt_parser_and_trace_table() -> None:
     sections = parse_prompt_sections(_record("a", "none", "control")["prompt"])
     rows = trace_table(sections["episode_trace"])
@@ -73,7 +91,7 @@ def test_demo_selection_keeps_one_example_per_failure_and_role(
     assert {record["pair_failure_type"] for record in selected} == {"collision_blind"}
 
 
-def test_space_bundle_contains_no_training_metadata_beyond_examples(
+def test_space_bundle_requires_cached_predictions_for_every_example(
     tmp_path: Path,
 ) -> None:
     template = tmp_path / "space"
@@ -89,10 +107,25 @@ def test_space_bundle_contains_no_training_metadata_beyond_examples(
         encoding="utf-8",
     )
 
-    summary = prepare_space_bundle(template, dataset, tmp_path / "bundle")
+    predictions = tmp_path / "predictions.jsonl"
+    records = [
+        _record("a", "none", "control"),
+        _record("b", "collision_blind", "exploit"),
+    ]
+    predictions.write_text(
+        "".join(json.dumps(_prediction(record)) + "\n" for record in records),
+        encoding="utf-8",
+    )
+
+    summary = prepare_space_bundle(
+        template,
+        dataset,
+        tmp_path / "bundle",
+        prediction_jsonl=predictions,
+    )
 
     assert summary["example_count"] == 2
-    assert summary["prediction_count"] == 0
+    assert summary["prediction_count"] == 2
     assert summary["roles"] == ["control", "exploit"]
     assert (tmp_path / "bundle" / "examples.json").is_file()
 
@@ -115,24 +148,7 @@ def test_space_bundle_includes_exact_cached_model_predictions(
     )
     predictions = tmp_path / "predictions.jsonl"
     predictions.write_text(
-        "".join(
-            json.dumps(
-                {
-                    "example_id": record["example_id"],
-                    "completion": json.dumps(
-                        {
-                            "verdict": (
-                                "aligned"
-                                if record["case_role"] == "control"
-                                else "reward_hack"
-                            )
-                        }
-                    ),
-                }
-            )
-            + "\n"
-            for record in records
-        ),
+        "".join(json.dumps(_prediction(record)) + "\n" for record in records),
         encoding="utf-8",
     )
 
@@ -167,7 +183,64 @@ def test_space_bundle_rejects_stale_unexpected_files(tmp_path: Path) -> None:
     (bundle / "stale-secret.txt").write_text("stale", encoding="utf-8")
 
     with pytest.raises(ValueError, match="stale files"):
-        prepare_space_bundle(template, dataset, bundle)
+        prepare_space_bundle(
+            template,
+            dataset,
+            bundle,
+            prediction_jsonl=tmp_path / "predictions.jsonl",
+        )
+
+
+def test_space_bundle_rejects_incomplete_or_invalid_cached_predictions(
+    tmp_path: Path,
+) -> None:
+    template = tmp_path / "space"
+    template.mkdir()
+    for filename in ("README.md", "app.py", "requirements.txt"):
+        (template / filename).write_text(filename, encoding="utf-8")
+    records = [
+        _record("a", "none", "control"),
+        _record("b", "collision_blind", "exploit"),
+    ]
+    dataset = tmp_path / "test.jsonl"
+    dataset.write_text(
+        "".join(json.dumps(record) + "\n" for record in records),
+        encoding="utf-8",
+    )
+    predictions = tmp_path / "predictions.jsonl"
+    predictions.write_text(
+        json.dumps(_prediction(records[0])) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="missing selected"):
+        prepare_space_bundle(
+            template,
+            dataset,
+            tmp_path / "incomplete",
+            prediction_jsonl=predictions,
+        )
+
+    predictions.write_text(
+        "".join(
+            json.dumps(
+                {
+                    "example_id": record["example_id"],
+                    "completion": '{"verdict":"aligned"}',
+                }
+            )
+            + "\n"
+            for record in records
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="not a strict diagnosis"):
+        prepare_space_bundle(
+            template,
+            dataset,
+            tmp_path / "invalid",
+            prediction_jsonl=predictions,
+        )
 
 
 def test_space_source_has_valid_unicode_and_oracle_summary() -> None:

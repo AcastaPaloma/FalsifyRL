@@ -20,6 +20,12 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=Path("artifacts/release/space"),
     )
+    parser.add_argument(
+        "--prediction-jsonl",
+        type=Path,
+        required=True,
+        help="strict prediction JSONL from the exact checkpoint evaluation",
+    )
     return parser.parse_args()
 
 
@@ -29,10 +35,10 @@ def main() -> None:
         args.template_dir,
         args.dataset_jsonl,
         args.bundle_dir,
+        prediction_jsonl=args.prediction_jsonl,
     )
     print(json.dumps(summary, indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":
     main()
-

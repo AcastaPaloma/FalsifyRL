@@ -13,11 +13,13 @@ from falsifyrl.release import (
     audit_model_bundle,
     prepare_adapted_dataset_bundle,
     prepare_dataset_bundle,
+    publish_huggingface_space,
     render_model_card,
     require_huggingface_token,
     require_kaggle_token,
     set_kaggle_dataset_public,
     set_kaggle_model_public,
+    set_kaggle_model_visibility,
     verify_anonymous_public_page,
 )
 from scripts.continue_dataset_release import await_audited_export
@@ -27,6 +29,7 @@ from scripts.continue_dataset_release import (
 from scripts.continue_model_release import (
     await_passing_evaluation,
     resolve_evaluated_adapter_base_model,
+    rollback_staged_publication,
     validate_model_release_configuration,
     verify_selected_release_artifacts,
 )
@@ -306,6 +309,23 @@ def test_model_bundle_audit_rejects_placeholders_and_missing_weights(
         audit_model_bundle(tmp_path)
 
 
+def test_publishable_space_requires_cached_predictions(tmp_path: Path) -> None:
+    for filename in ("README.md", "app.py", "requirements.txt"):
+        (tmp_path / filename).write_text(filename, encoding="utf-8")
+    (tmp_path / "examples.json").write_text(
+        json.dumps([{"example_id": f"example-{index}"} for index in range(16)]),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="predictions.json"):
+        publish_huggingface_space(
+            tmp_path,
+            owner="owner",
+            base_model_id="base/model",
+            model_repo_id="owner/model",
+        )
+
+
 def test_kaggle_publication_explicitly_sets_dataset_and_model_visibility(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -360,6 +380,76 @@ def test_kaggle_publication_explicitly_sets_dataset_and_model_visibility(
     assert captured["dataset"].settings.licenses[0].name == "MIT"
     assert captured["model"].is_private is False
     assert "is_private" in captured["model"].update_mask.paths
+
+
+def test_kaggle_model_visibility_can_restore_private_after_failed_release(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured = {}
+
+    class ModelApi:
+        def update_model(self, request):
+            captured["model"] = request
+            return SimpleNamespace(error="")
+
+    client = SimpleNamespace(models=SimpleNamespace(model_api_client=ModelApi()))
+
+    class ClientContext:
+        def __enter__(self):
+            return client
+
+        def __exit__(self, *args):
+            return False
+
+    import kagglehub.clients
+
+    monkeypatch.setattr(
+        kagglehub.clients,
+        "build_kaggle_client",
+        lambda: ClientContext(),
+    )
+    set_kaggle_model_visibility(
+        owner="owner",
+        slug="model",
+        title="Model",
+        subtitle="Subtitle",
+        description="Description",
+        private=True,
+    )
+
+    assert captured["model"].is_private is True
+    assert "is_private" in captured["model"].update_mask.paths
+
+
+def test_failed_release_rolls_back_only_created_artifacts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
+
+    monkeypatch.setattr(
+        "scripts.continue_model_release.set_huggingface_repo_visibility",
+        lambda repo_id, **kwargs: calls.append(("hf", repo_id, kwargs)),
+    )
+    monkeypatch.setattr(
+        "scripts.continue_model_release.set_kaggle_model_visibility",
+        lambda **kwargs: calls.append(("kaggle", kwargs)),
+    )
+
+    failures = rollback_staged_publication(
+        huggingface_model_id="owner/model",
+        huggingface_space_id="owner/space",
+        kaggle_owner="owner",
+        model_slug="model",
+        model_created=True,
+        space_created=True,
+        kaggle_model_created=True,
+    )
+
+    assert failures == []
+    assert calls[0] == ("hf", "owner/space", {"repo_type": "space", "private": True})
+    assert calls[1] == ("hf", "owner/model", {"repo_type": "model", "private": True})
+    assert calls[2][0] == "kaggle"
+    assert calls[2][1]["private"] is True
 
 
 def test_public_page_verification_rejects_private_or_wrong_artifact() -> None:

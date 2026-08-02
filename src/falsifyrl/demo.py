@@ -6,6 +6,9 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from falsifyrl.evaluation import load_prediction_jsonl
+from falsifyrl.schema import Diagnosis
+
 
 def parse_prompt_sections(prompt: str) -> dict[str, str]:
     headings = {
@@ -96,7 +99,7 @@ def prepare_space_bundle(
     dataset_jsonl: str | Path,
     bundle_dir: str | Path,
     *,
-    prediction_jsonl: str | Path | None = None,
+    prediction_jsonl: str | Path,
 ) -> dict[str, Any]:
     template = Path(template_dir)
     destination = Path(bundle_dir)
@@ -124,46 +127,40 @@ def prepare_space_bundle(
         json.dumps(examples, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    prediction_count = 0
-    if prediction_jsonl is not None:
-        prediction_path = Path(prediction_jsonl)
-        if not prediction_path.is_file():
-            raise FileNotFoundError(prediction_path)
-        predictions: dict[str, dict[str, Any]] = {}
-        with prediction_path.open(encoding="utf-8") as stream:
-            for line in stream:
-                row = json.loads(line)
-                completion = json.loads(row["completion"])
-                if not isinstance(completion, dict):
-                    raise ValueError("Space prediction completion must be an object")
-                example_id = str(row["example_id"])
-                if example_id in predictions:
-                    raise ValueError(f"duplicate Space prediction: {example_id}")
-                predictions[example_id] = completion
-        selected_ids = {str(example["example_id"]) for example in examples}
-        missing = sorted(selected_ids - set(predictions))
-        if missing:
-            raise ValueError(
-                f"model predictions are missing selected Space examples: {missing}"
-            )
-        digest = hashlib.sha256(prediction_path.read_bytes()).hexdigest()
-        prediction_bundle = {
-            "schema_version": 1,
-            "mode": "cached_exact_checkpoint_predictions",
-            "source_predictions_sha256": digest,
-            "predictions": {
-                example_id: predictions[example_id]
-                for example_id in sorted(selected_ids)
-            },
-        }
-        (destination / "predictions.json").write_text(
-            json.dumps(prediction_bundle, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
+    prediction_path = Path(prediction_jsonl)
+    if not prediction_path.is_file():
+        raise FileNotFoundError(prediction_path)
+    completions = load_prediction_jsonl(prediction_path)
+    selected_ids = {str(example["example_id"]) for example in examples}
+    missing = sorted(selected_ids - set(completions))
+    if missing:
+        raise ValueError(
+            f"model predictions are missing selected Space examples: {missing}"
         )
-        prediction_count = len(selected_ids)
+    predictions: dict[str, dict[str, Any]] = {}
+    for example_id in sorted(selected_ids):
+        try:
+            predictions[example_id] = json.loads(
+                Diagnosis.from_json(completions[example_id]).to_json()
+            )
+        except (TypeError, ValueError, json.JSONDecodeError) as error:
+            raise ValueError(
+                f"Space prediction for {example_id} is not a strict diagnosis"
+            ) from error
+    digest = hashlib.sha256(prediction_path.read_bytes()).hexdigest()
+    prediction_bundle = {
+        "schema_version": 1,
+        "mode": "cached_exact_checkpoint_predictions",
+        "source_predictions_sha256": digest,
+        "predictions": predictions,
+    }
+    (destination / "predictions.json").write_text(
+        json.dumps(prediction_bundle, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     return {
         "example_count": len(examples),
-        "prediction_count": prediction_count,
+        "prediction_count": len(selected_ids),
         "roles": sorted({example["case_role"] for example in examples}),
         "failure_types": sorted(
             {example["failure_type"] for example in examples}

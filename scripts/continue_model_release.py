@@ -19,6 +19,8 @@ from falsifyrl.release import (
     publish_huggingface_model,
     publish_huggingface_space,
     publish_kaggle_model,
+    set_huggingface_repo_visibility,
+    set_kaggle_model_visibility,
     verify_anonymous_public_page,
 )
 
@@ -129,7 +131,12 @@ def verify_selected_release_artifacts(
             raise ValueError(f"released prediction hash mismatch for {key}")
 
 
-def verify_huggingface_adapter(repo_id: str, expected_sha256: str) -> str:
+def verify_huggingface_adapter(
+    repo_id: str,
+    expected_sha256: str,
+    *,
+    private: bool = False,
+) -> str:
     try:
         from huggingface_hub import hf_hub_download
     except ImportError as error:
@@ -139,7 +146,11 @@ def verify_huggingface_adapter(repo_id: str, expected_sha256: str) -> str:
     downloaded = hf_hub_download(
         repo_id=repo_id,
         filename="adapter_model.safetensors",
-        token=False,
+        token=(
+            (os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN"))
+            if private
+            else False
+        ),
         force_download=True,
     )
     actual = _sha256(downloaded)
@@ -148,6 +159,55 @@ def verify_huggingface_adapter(repo_id: str, expected_sha256: str) -> str:
             f"Hugging Face adapter hash mismatch: {actual} != {expected_sha256}"
         )
     return actual
+
+
+def rollback_staged_publication(
+    *,
+    huggingface_model_id: str,
+    huggingface_space_id: str,
+    kaggle_owner: str,
+    model_slug: str,
+    model_created: bool,
+    space_created: bool,
+    kaggle_model_created: bool,
+) -> list[str]:
+    """Best-effort rollback; keep failed staged artifacts private rather than public."""
+    failures: list[str] = []
+    actions = []
+    if space_created:
+        actions.append(
+            lambda: set_huggingface_repo_visibility(
+                huggingface_space_id, repo_type="space", private=True
+            )
+        )
+    if model_created:
+        actions.append(
+            lambda: set_huggingface_repo_visibility(
+                huggingface_model_id, repo_type="model", private=True
+            )
+        )
+    if kaggle_model_created:
+        actions.append(
+            lambda: set_kaggle_model_visibility(
+                owner=kaggle_owner,
+                slug=model_slug,
+                title=model_slug.replace("-", " "),
+                subtitle=(
+                    "LoRA critic for evidence-grounded diagnosis and executable reward repair"
+                ),
+                description=(
+                    "Best audited AutoScientist checkpoint trained on the exact FalsifyRL "
+                    "adapted dataset and evaluated on a family-disjoint held-out robotics split."
+                ),
+                private=True,
+            )
+        )
+    for action in actions:
+        try:
+            action()
+        except Exception as error:  # rollback must not hide the primary failure
+            failures.append(f"{type(error).__name__}: {error}")
+    return failures
 
 
 def verify_kaggle_adapter(handle: str, expected_sha256: str) -> str:
@@ -172,6 +232,74 @@ def verify_kaggle_adapter(handle: str, expected_sha256: str) -> str:
     if actual != expected_sha256:
         raise ValueError(f"Kaggle adapter hash mismatch: {actual} != {expected_sha256}")
     return actual
+
+
+def write_selected_release_record(
+    path: Path,
+    *,
+    state: WorkflowState,
+    comparison: dict,
+    adapter_sha256: str,
+    huggingface_owner: str,
+    kaggle_owner: str,
+    model_slug: str,
+    kaggle_model_version: int,
+    huggingface_model_url: str,
+    kaggle_model_url: str,
+) -> dict:
+    """Write the one-time record that authorizes the public Kaggle evaluator."""
+    if path.exists():
+        raise ValueError(f"selected release record must not already exist: {path}")
+    evidence = comparison.get("evidence", {})
+    required_evidence = (
+        "base_predictions_sha256",
+        "adapted_predictions_sha256",
+    )
+    if not all(isinstance(evidence.get(key), str) for key in required_evidence):
+        raise ValueError("comparison is missing prediction hash evidence")
+    if kaggle_model_version < 1:
+        raise ValueError("Kaggle model version must be positive")
+
+    kaggle_source = (
+        f"{kaggle_owner}/{model_slug}/pytorch/lora/{kaggle_model_version}"
+    )
+    value = {
+        "schema_version": 1,
+        "identity": {
+            "autoscientist_run_id": state.autoscientist_run_id,
+            "base_model_id": state.resolved_model,
+            "adapter_sha256": adapter_sha256,
+            "base_predictions_sha256": evidence["base_predictions_sha256"],
+            "adapted_predictions_sha256": evidence["adapted_predictions_sha256"],
+        },
+        "huggingface_model": {
+            "owner": huggingface_owner,
+            "slug": model_slug,
+            "repo_id": f"{huggingface_owner}/{model_slug}",
+            "url": huggingface_model_url,
+        },
+        "kaggle_model": {
+            "owner": kaggle_owner,
+            "slug": model_slug,
+            "variation": "lora",
+            "version": kaggle_model_version,
+            "source": kaggle_source,
+            "url": kaggle_model_url,
+        },
+        "kaggle_dataset": {
+            "owner": kaggle_owner,
+            "slug": "falsifyrl-adapted",
+            "url": (
+                f"https://www.kaggle.com/datasets/{kaggle_owner}/falsifyrl-adapted"
+            ),
+        },
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(value, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return value
 
 
 def update_private_manifest(
@@ -298,6 +426,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--huggingface-owner")
     parser.add_argument("--kaggle-owner")
     parser.add_argument("--model-slug", default="falsifyrl-autoscientist")
+    parser.add_argument("--kaggle-model-version", type=int, required=True)
+    parser.add_argument(
+        "--selected-release-record",
+        type=Path,
+        required=True,
+        help="new write-once record consumed by continue_kaggle_notebook.py",
+    )
     parser.add_argument("--space-slug", default="falsifyrl")
     parser.add_argument(
         "--model-card-template",
@@ -371,56 +506,133 @@ def main() -> None:
         license_path=args.model_license_file,
     )
     expected_sha256 = model_manifest["files"]["adapter_model.safetensors"]["sha256"]
-    huggingface_model_url = publish_huggingface_model(
-        args.model_bundle,
-        owner=huggingface_owner,
-        slug=args.model_slug,
-    )
-    kaggle_model_url = publish_kaggle_model(
-        args.model_bundle,
-        owner=kaggle_owner,
-        slug=args.model_slug,
-        license_name=kaggle_license_name,
-    )
-    verify_anonymous_public_page(
-        kaggle_model_url,
-        expected_marker=args.model_slug,
-    )
     huggingface_model_id = f"{huggingface_owner}/{args.model_slug}"
-    kaggle_model_handle = f"{kaggle_owner}/{args.model_slug}/pytorch/lora"
-    verification = {
-        "expected_sha256": expected_sha256,
-        "huggingface_sha256": verify_huggingface_adapter(
-            huggingface_model_id,
-            expected_sha256,
-        ),
-        "kaggle_sha256": verify_kaggle_adapter(
-            kaggle_model_handle,
-            expected_sha256,
-        ),
-    }
-    (args.model_bundle / "publication-verification.json").write_text(
-        json.dumps(verification, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
+    kaggle_model_handle = (
+        f"{kaggle_owner}/{args.model_slug}/pytorch/lora/"
+        f"{args.kaggle_model_version}"
     )
+    huggingface_space_id = f"{huggingface_owner}/{args.space_slug}"
+    huggingface_model_url = f"https://huggingface.co/{huggingface_model_id}"
+    kaggle_model_url = (
+        f"https://www.kaggle.com/models/{kaggle_owner}/{args.model_slug}/pytorch/lora"
+    )
+    space_url = f"https://huggingface.co/spaces/{huggingface_space_id}"
+    model_created = False
+    kaggle_model_created = False
+    space_created = False
+    try:
+        # Stage both weight repositories privately. Hugging Face supports an atomic
+        # private create; Kaggle has no upload-visibility argument, so its helper
+        # immediately requests private visibility after upload.
+        publish_huggingface_model(
+            args.model_bundle,
+            owner=huggingface_owner,
+            slug=args.model_slug,
+            private=True,
+        )
+        model_created = True
+        publish_kaggle_model(
+            args.model_bundle,
+            owner=kaggle_owner,
+            slug=args.model_slug,
+            license_name=kaggle_license_name,
+            private=True,
+        )
+        kaggle_model_created = True
+        verification = {
+            "expected_sha256": expected_sha256,
+            "huggingface_sha256": verify_huggingface_adapter(
+                huggingface_model_id,
+                expected_sha256,
+                private=True,
+            ),
+            "kaggle_sha256": verify_kaggle_adapter(
+                kaggle_model_handle,
+                expected_sha256,
+            ),
+        }
+        (args.model_bundle / "publication-verification.json").write_text(
+            json.dumps(verification, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
 
-    space_url = publish_huggingface_space(
-        args.space_bundle,
-        owner=huggingface_owner,
-        base_model_id=base_model_id,
-        model_repo_id=huggingface_model_id,
-        slug=args.space_slug,
-    )
-    evaluation_report_url = (
-        f"{huggingface_model_url}/resolve/main/evaluation-report.json"
-    )
-    update_private_manifest(
-        args.submission_manifest,
-        huggingface_model_url=huggingface_model_url,
-        kaggle_model_url=kaggle_model_url,
-        space_url=space_url,
-        evaluation_report_url=evaluation_report_url,
-    )
+        # Do not expose either checkpoint until the byte-level cross-host check passes.
+        set_huggingface_repo_visibility(
+            huggingface_model_id, repo_type="model", private=False
+        )
+        set_kaggle_model_visibility(
+            owner=kaggle_owner,
+            slug=args.model_slug,
+            title=args.model_slug.replace("-", " "),
+            subtitle="LoRA critic for evidence-grounded diagnosis and executable reward repair",
+            description=(
+                "Best audited AutoScientist checkpoint trained on the exact FalsifyRL "
+                "adapted dataset and evaluated on a family-disjoint held-out robotics split."
+            ),
+            private=False,
+        )
+        verify_anonymous_public_page(
+            huggingface_model_url,
+            expected_marker=args.model_slug,
+        )
+        verify_anonymous_public_page(
+            kaggle_model_url,
+            expected_marker=args.model_slug,
+        )
+
+        # The Space is also staged private, then promoted only after both model hosts
+        # are public and hash-verified.
+        publish_huggingface_space(
+            args.space_bundle,
+            owner=huggingface_owner,
+            base_model_id=base_model_id,
+            model_repo_id=huggingface_model_id,
+            slug=args.space_slug,
+            private=True,
+        )
+        space_created = True
+        set_huggingface_repo_visibility(
+            huggingface_space_id, repo_type="space", private=False
+        )
+        verify_anonymous_public_page(space_url, expected_marker=args.space_slug)
+        evaluation_report_url = (
+            f"{huggingface_model_url}/resolve/main/evaluation-report.json"
+        )
+        update_private_manifest(
+            args.submission_manifest,
+            huggingface_model_url=huggingface_model_url,
+            kaggle_model_url=kaggle_model_url,
+            space_url=space_url,
+            evaluation_report_url=evaluation_report_url,
+        )
+        selected_release = write_selected_release_record(
+            args.selected_release_record,
+            state=state,
+            comparison=comparison,
+            adapter_sha256=expected_sha256,
+            huggingface_owner=huggingface_owner,
+            kaggle_owner=kaggle_owner,
+            model_slug=args.model_slug,
+            kaggle_model_version=args.kaggle_model_version,
+            huggingface_model_url=huggingface_model_url,
+            kaggle_model_url=kaggle_model_url,
+        )
+    except Exception as error:
+        rollback_failures = rollback_staged_publication(
+            huggingface_model_id=huggingface_model_id,
+            huggingface_space_id=huggingface_space_id,
+            kaggle_owner=kaggle_owner,
+            model_slug=args.model_slug,
+            model_created=model_created,
+            space_created=space_created,
+            kaggle_model_created=kaggle_model_created,
+        )
+        details = "; ".join(rollback_failures)
+        if details:
+            raise RuntimeError(
+                f"publication failed and rollback was incomplete: {details}"
+            ) from error
+        raise
     print(
         json.dumps(
             {
@@ -428,6 +640,8 @@ def main() -> None:
                 "kaggle_model_url": kaggle_model_url,
                 "space_url": space_url,
                 "verification": verification,
+                "selected_release_record": str(args.selected_release_record.resolve()),
+                "kaggle_model_source": selected_release["kaggle_model"]["source"],
                 "dataset_url": submission["links"]["huggingface_dataset"],
             },
             indent=2,

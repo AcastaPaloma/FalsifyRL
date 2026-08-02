@@ -10,6 +10,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from falsifyrl.schema import Diagnosis
+
 DATASET_FILES = (
     "train.csv",
     "train.jsonl",
@@ -275,13 +277,14 @@ def set_kaggle_dataset_public(
         raise RuntimeError(f"Kaggle dataset metadata update failed: {response.errors}")
 
 
-def set_kaggle_model_public(
+def set_kaggle_model_visibility(
     *,
     owner: str,
     slug: str,
     title: str,
     subtitle: str,
     description: str,
+    private: bool,
 ) -> None:
     try:
         from google.protobuf.field_mask_pb2 import FieldMask
@@ -297,7 +300,7 @@ def set_kaggle_model_public(
     request.title = title
     request.subtitle = subtitle
     request.description = description
-    request.is_private = False
+    request.is_private = private
     request.update_mask = FieldMask(
         paths=("title", "subtitle", "description", "is_private")
     )
@@ -305,6 +308,44 @@ def set_kaggle_model_public(
         response = client.models.model_api_client.update_model(request)
     if response.error:
         raise RuntimeError(f"Kaggle model metadata update failed: {response.error}")
+
+
+def set_kaggle_model_public(
+    *,
+    owner: str,
+    slug: str,
+    title: str,
+    subtitle: str,
+    description: str,
+) -> None:
+    set_kaggle_model_visibility(
+        owner=owner,
+        slug=slug,
+        title=title,
+        subtitle=subtitle,
+        description=description,
+        private=False,
+    )
+
+
+def set_huggingface_repo_visibility(
+    repo_id: str,
+    *,
+    repo_type: str,
+    private: bool,
+) -> None:
+    """Set Hugging Face visibility explicitly for staged releases and rollback."""
+    try:
+        from huggingface_hub import HfApi
+    except ImportError as error:
+        raise RuntimeError(
+            "Install release dependencies with `pip install -e .[release]`."
+        ) from error
+    HfApi(token=require_huggingface_token()).update_repo_visibility(
+        repo_id=repo_id,
+        repo_type=repo_type,
+        private=private,
+    )
 
 
 def publish_huggingface_dataset(
@@ -403,6 +444,7 @@ def publish_huggingface_model(
     *,
     owner: str,
     slug: str = "falsifyrl-autoscientist",
+    private: bool = False,
 ) -> str:
     try:
         from huggingface_hub import HfApi
@@ -413,7 +455,8 @@ def publish_huggingface_model(
     audit_model_bundle(bundle_dir)
     repo_id = f"{owner}/{slug}"
     api = HfApi(token=require_huggingface_token())
-    api.create_repo(repo_id=repo_id, repo_type="model", private=False, exist_ok=True)
+    api.create_repo(repo_id=repo_id, repo_type="model", private=private, exist_ok=True)
+    api.update_repo_visibility(repo_id=repo_id, repo_type="model", private=private)
     api.upload_folder(
         folder_path=str(bundle_dir),
         repo_id=repo_id,
@@ -430,6 +473,7 @@ def publish_kaggle_model(
     slug: str = "falsifyrl-autoscientist",
     variation: str = "lora",
     license_name: str | None = "Apache 2.0",
+    private: bool = False,
 ) -> str:
     try:
         import kagglehub
@@ -446,7 +490,11 @@ def publish_kaggle_model(
         license_name=license_name,
         version_notes="Best FalsifyRL AutoScientist LoRA checkpoint",
     )
-    set_kaggle_model_public(
+    # kagglehub.model_upload does not expose a visibility option. Set the requested
+    # visibility immediately after upload; a new model can be briefly visible if
+    # Kaggle changes its upload default, so callers should still treat this as a
+    # best-effort stage rather than an atomic private transaction.
+    set_kaggle_model_visibility(
         owner=owner,
         slug=slug,
         title=slug.replace("-", " "),
@@ -455,6 +503,7 @@ def publish_kaggle_model(
             "Best audited AutoScientist checkpoint trained on the exact FalsifyRL "
             "adapted dataset and evaluated on a family-disjoint held-out robotics split."
         ),
+        private=private,
     )
     return f"https://www.kaggle.com/models/{handle}"
 
@@ -466,6 +515,7 @@ def publish_huggingface_space(
     base_model_id: str,
     model_repo_id: str,
     slug: str = "falsifyrl",
+    private: bool = False,
 ) -> str:
     try:
         from huggingface_hub import HfApi
@@ -474,13 +524,40 @@ def publish_huggingface_space(
             "Install release dependencies with `pip install -e .[release]`."
         ) from error
     bundle = Path(bundle_dir)
-    required = {"README.md", "app.py", "requirements.txt", "examples.json"}
+    required = {
+        "README.md",
+        "app.py",
+        "requirements.txt",
+        "examples.json",
+        "predictions.json",
+    }
     missing = sorted(filename for filename in required if not (bundle / filename).is_file())
     if missing:
         raise ValueError(f"Space bundle is missing required files: {missing}")
     examples = json.loads((bundle / "examples.json").read_text(encoding="utf-8"))
     if len(examples) < 16:
         raise ValueError("Space bundle must include eight matched control/exploit pairs")
+    prediction_bundle = json.loads(
+        (bundle / "predictions.json").read_text(encoding="utf-8")
+    )
+    if (
+        prediction_bundle.get("schema_version") != 1
+        or prediction_bundle.get("mode") != "cached_exact_checkpoint_predictions"
+        or not isinstance(prediction_bundle.get("source_predictions_sha256"), str)
+        or len(prediction_bundle["source_predictions_sha256"]) != 64
+    ):
+        raise ValueError("Space predictions bundle has an invalid provenance contract")
+    predictions = prediction_bundle.get("predictions")
+    expected_ids = {str(example["example_id"]) for example in examples}
+    if not isinstance(predictions, dict) or set(predictions) != expected_ids:
+        raise ValueError("Space predictions must cover exactly the published examples")
+    for example_id, prediction in predictions.items():
+        try:
+            Diagnosis.from_json(json.dumps(prediction, sort_keys=True))
+        except (TypeError, ValueError, json.JSONDecodeError) as error:
+            raise ValueError(
+                f"Space prediction for {example_id} is not a strict diagnosis"
+            ) from error
 
     repo_id = f"{owner}/{slug}"
     token = require_huggingface_token()
@@ -489,9 +566,10 @@ def publish_huggingface_space(
         repo_id=repo_id,
         repo_type="space",
         space_sdk="gradio",
-        private=False,
+        private=private,
         exist_ok=True,
     )
+    api.update_repo_visibility(repo_id=repo_id, repo_type="space", private=private)
     api.upload_folder(
         folder_path=bundle,
         repo_id=repo_id,

@@ -120,6 +120,8 @@ license metadata unset rather than claiming Apache 2.0. The bundled license rema
   --huggingface-owner KuanKuanKuan `
   --kaggle-owner kuanyiwang `
   --model-slug Llama-FalsifyRL-AutoScientist `
+  --kaggle-model-version 1 `
+  --selected-release-record "outputs/evaluation/$run/selected-release.json" `
   --space-slug falsifyrl-llama `
   --model-card-template release/model/README.llama3.2.md `
   --model-license-file outputs/licenses/Llama-3.2-LICENSE.txt `
@@ -131,12 +133,21 @@ base-model mismatch, publishes the exact same adapter bytes to both hosts, and v
 hashes. The resulting Kaggle model handle is
 `kuanyiwang/Llama-FalsifyRL-AutoScientist/pytorch/lora`.
 
+The release transaction stages the Hugging Face model privately, uploads Kaggle and immediately
+requests private visibility, then verifies both adapter hashes with authenticated clients before
+promoting either model. Hugging Face supports private staging atomically. Kaggle's upload API does
+not expose a visibility argument, so its post-upload privacy change is best-effort and may leave a
+brief exposure window if Kaggle changes its default. Any later failure attempts to restore the
+Hugging Face model/Space and Kaggle model to private visibility; inspect the raised rollback details
+before retrying.
+
 ## Publish the interactive Space
 
 Prepare the Space bundle from held-out examples:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/prepare_space.py
+.\.venv\Scripts\python.exe scripts/prepare_space.py `
+  --prediction-jsonl "outputs/evaluation/$run/final/staged-evidence/falsifyrl-adapted-test-predictions.jsonl"
 ```
 
 The release command above prepares and publishes the cached-prediction Space only after both model
@@ -163,6 +174,7 @@ a private `HF_TOKEN` Kaggle secret to regenerate those predictions.
 
 ```powershell
 .\.venv\Scripts\python.exe scripts/continue_kaggle_notebook.py `
+  --selected-release-record "outputs/evaluation/$run/selected-release.json" `
   --owner kuanyiwang `
   --model-slug Llama-FalsifyRL-AutoScientist `
   --model-version 1 `
