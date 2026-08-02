@@ -531,6 +531,11 @@ def main() -> None:
             private=True,
         )
         model_created = True
+        # The upload helper must be treated as having created a remote artifact as
+        # soon as it is invoked: upload can succeed even if its immediate privacy
+        # update then fails. This guarantees the outer exception path retries the
+        # privacy rollback in that partial-success case.
+        kaggle_model_created = True
         publish_kaggle_model(
             args.model_bundle,
             owner=kaggle_owner,
@@ -538,7 +543,6 @@ def main() -> None:
             license_name=kaggle_license_name,
             private=True,
         )
-        kaggle_model_created = True
         verification = {
             "expected_sha256": expected_sha256,
             "huggingface_sha256": verify_huggingface_adapter(
