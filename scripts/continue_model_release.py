@@ -419,6 +419,12 @@ def parse_args() -> argparse.Namespace:
         required=True,
     )
     parser.add_argument(
+        "--evaluation-evidence-dir",
+        type=Path,
+        required=True,
+        help="verified staged-evidence directory containing immutable evaluation metadata",
+    )
+    parser.add_argument(
         "--model-predictions",
         type=Path,
         default=Path("outputs/evaluation/falsifyrl-adapted-test-predictions.jsonl"),
@@ -502,6 +508,7 @@ def main() -> None:
         evaluation_report=args.comparison,
         base_predictions=args.base_predictions,
         adapted_predictions=args.model_predictions,
+        evaluation_metadata_dir=args.evaluation_evidence_dir,
         model_card_template=args.model_card_template,
         license_path=args.model_license_file,
     )

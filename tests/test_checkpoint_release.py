@@ -57,6 +57,7 @@ def test_checkpoint_preparation_extracts_and_audits_adapter(tmp_path: Path) -> N
     license_file = tmp_path / "LICENSE"
     base_predictions = tmp_path / "base.jsonl"
     adapted_predictions = tmp_path / "adapted.jsonl"
+    evaluation_metadata = tmp_path / "evidence"
     _checkpoint(archive)
     report.write_text('{"composite_score":0.8}', encoding="utf-8")
     template.write_text(
@@ -67,6 +68,9 @@ def test_checkpoint_preparation_extracts_and_audits_adapter(tmp_path: Path) -> N
     license_file.write_text("MIT", encoding="utf-8")
     base_predictions.write_text('{"example_id":"a","completion":"{}"}\n')
     adapted_predictions.write_text('{"example_id":"a","completion":"{}"}\n')
+    evaluation_metadata.mkdir()
+    (evaluation_metadata / "evaluation-manifest.json").write_text("{}\n")
+    (evaluation_metadata / "colab-evaluation.json").write_text("{}\n")
 
     manifest = prepare_model_bundle(
         archive,
@@ -78,6 +82,7 @@ def test_checkpoint_preparation_extracts_and_audits_adapter(tmp_path: Path) -> N
         evaluation_report=report,
         base_predictions=base_predictions,
         adapted_predictions=adapted_predictions,
+        evaluation_metadata_dir=evaluation_metadata,
         model_card_template=template,
         license_path=license_file,
     )
@@ -91,6 +96,8 @@ def test_checkpoint_preparation_extracts_and_audits_adapter(tmp_path: Path) -> N
     assert manifest["files"]["falsifyrl-adapted-test-predictions.jsonl"][
         "sha256"
     ]
+    assert "evaluation-manifest.json" in manifest["files"]
+    assert "colab-evaluation.json" in manifest["files"]
 
 
 def test_checkpoint_can_be_extracted_for_prepublication_evaluation(

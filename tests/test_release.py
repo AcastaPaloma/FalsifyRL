@@ -17,6 +17,7 @@ from falsifyrl.release import (
     render_model_card,
     require_huggingface_token,
     require_kaggle_token,
+    set_huggingface_repo_visibility,
     set_kaggle_dataset_public,
     set_kaggle_model_public,
     set_kaggle_model_visibility,
@@ -268,6 +269,37 @@ def test_release_tokens_are_environment_only(monkeypatch: pytest.MonkeyPatch) ->
         require_huggingface_token()
     with pytest.raises(RuntimeError, match="KAGGLE_API_TOKEN"):
         require_kaggle_token()
+
+
+def test_huggingface_visibility_uses_supported_repo_settings_api(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured = {}
+
+    class FakeHfApi:
+        def __init__(self, *, token: str):
+            captured["token"] = token
+
+        def update_repo_settings(self, **kwargs):
+            captured["settings"] = kwargs
+
+    monkeypatch.setenv("HF_TOKEN", "test-token")
+    monkeypatch.setattr("huggingface_hub.HfApi", FakeHfApi)
+
+    set_huggingface_repo_visibility(
+        "owner/model",
+        repo_type="model",
+        private=True,
+    )
+
+    assert captured == {
+        "token": "test-token",
+        "settings": {
+            "repo_id": "owner/model",
+            "repo_type": "model",
+            "private": True,
+        },
+    }
 
 
 def test_model_card_requires_all_final_run_values(tmp_path: Path) -> None:

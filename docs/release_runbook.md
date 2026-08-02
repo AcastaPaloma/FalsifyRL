@@ -113,6 +113,7 @@ license metadata unset rather than claiming Apache 2.0. The bundled license rema
   --checkpoint-manifest "outputs/evaluation/$run/checkpoint-manifest.json" `
   --comparison "outputs/evaluation/$run/final/comparison.json" `
   --base-predictions "outputs/evaluation/$run/final/staged-evidence/falsifyrl-base-test-predictions.jsonl" `
+  --evaluation-evidence-dir "outputs/evaluation/$run/final/staged-evidence" `
   --model-predictions "outputs/evaluation/$run/final/staged-evidence/falsifyrl-adapted-test-predictions.jsonl" `
   --model-bundle "artifacts/release/$run/model" `
   --space-bundle "artifacts/release/$run/space" `

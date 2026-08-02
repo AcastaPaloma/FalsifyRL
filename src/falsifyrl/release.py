@@ -341,7 +341,7 @@ def set_huggingface_repo_visibility(
         raise RuntimeError(
             "Install release dependencies with `pip install -e .[release]`."
         ) from error
-    HfApi(token=require_huggingface_token()).update_repo_visibility(
+    HfApi(token=require_huggingface_token()).update_repo_settings(
         repo_id=repo_id,
         repo_type=repo_type,
         private=private,
@@ -456,7 +456,7 @@ def publish_huggingface_model(
     repo_id = f"{owner}/{slug}"
     api = HfApi(token=require_huggingface_token())
     api.create_repo(repo_id=repo_id, repo_type="model", private=private, exist_ok=True)
-    api.update_repo_visibility(repo_id=repo_id, repo_type="model", private=private)
+    api.update_repo_settings(repo_id=repo_id, repo_type="model", private=private)
     api.upload_folder(
         folder_path=str(bundle_dir),
         repo_id=repo_id,
@@ -569,7 +569,7 @@ def publish_huggingface_space(
         private=private,
         exist_ok=True,
     )
-    api.update_repo_visibility(repo_id=repo_id, repo_type="space", private=private)
+    api.update_repo_settings(repo_id=repo_id, repo_type="space", private=private)
     api.upload_folder(
         folder_path=bundle,
         repo_id=repo_id,
@@ -728,6 +728,7 @@ def prepare_model_bundle(
     evaluation_report: str | Path,
     base_predictions: str | Path | None = None,
     adapted_predictions: str | Path | None = None,
+    evaluation_metadata_dir: str | Path | None = None,
     model_card_template: str | Path = "release/model/README.md",
     license_path: str | Path = "release/model/LICENSE",
 ) -> dict[str, Any]:
@@ -769,6 +770,13 @@ def prepare_model_bundle(
         if not source_path.is_file():
             raise FileNotFoundError(source_path)
         shutil.copy2(source_path, destination / filename)
+    if evaluation_metadata_dir is not None:
+        metadata_root = Path(evaluation_metadata_dir)
+        for filename in ("evaluation-manifest.json", "colab-evaluation.json"):
+            source_path = metadata_root / filename
+            if not source_path.is_file():
+                raise FileNotFoundError(source_path)
+            shutil.copy2(source_path, destination / filename)
     shutil.copy2(license_path, destination / "LICENSE")
     render_model_card(
         model_card_template,

@@ -115,6 +115,56 @@ def test_finalize_builds_fail_closed_colab_comparison(tmp_path: Path) -> None:
     assert updated["metrics"]["trained_json_validity"] == 1.0
 
 
+def test_final_comparison_preserves_immutable_evidence_revision(tmp_path: Path) -> None:
+    cases = _test_cases()
+    aligned = next(case.diagnosis for case in cases if case.case_role == "control")
+    base_predictions = tmp_path / "base.jsonl"
+    adapted_predictions = tmp_path / "adapted.jsonl"
+    _write_predictions(
+        base_predictions,
+        {case.example_id: aligned.to_json() for case in cases},
+    )
+    _write_predictions(
+        adapted_predictions,
+        {case.example_id: case.diagnosis.to_json() for case in cases},
+    )
+    state = WorkflowState(
+        plan=AutoScientistPlan(source="file", local_file="train.jsonl"),
+        autoscientist_run_id="run-immutable",
+        autoscientist_status="succeeded",
+        best_win_rate=0.9,
+        resolved_model="base/model",
+        download_available=True,
+    )
+    state_path = tmp_path / "workflow.json"
+    state.save(state_path)
+    adapter = tmp_path / "adapter.safetensors"
+    adapter.write_bytes(b"adapter")
+    dataset_manifest = tmp_path / "dataset.json"
+    dataset_manifest.write_text("{}\n")
+
+    comparison = finalize(
+        state_path=state_path,
+        base_predictions=base_predictions,
+        adapted_predictions=adapted_predictions,
+        adapter_weights=adapter,
+        dataset_manifest=dataset_manifest,
+        base_report_path=tmp_path / "base-report.json",
+        adapted_report_path=tmp_path / "adapted-report.json",
+        comparison_json_path=tmp_path / "comparison.json",
+        comparison_markdown_path=tmp_path / "comparison.md",
+        submission_manifest_path=None,
+        evidence_provenance={
+            "staging_repo_id": "owner/private-evidence",
+            "evidence_revision": "a" * 40,
+            "checkpoint_revision": "b" * 40,
+        },
+    )
+
+    assert comparison["evidence"]["evidence_revision"] == "a" * 40
+    assert comparison["evidence"]["checkpoint_revision"] == "b" * 40
+
+
 def test_staged_evidence_is_bound_to_exact_run_and_files(tmp_path: Path) -> None:
     cases = _test_cases()
     aligned = next(case.diagnosis for case in cases if case.case_role == "control")

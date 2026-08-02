@@ -198,6 +198,7 @@ def finalize(
     comparison_json_path: Path,
     comparison_markdown_path: Path,
     submission_manifest_path: Path | None,
+    evidence_provenance: dict[str, str] | None = None,
 ) -> dict:
     state = WorkflowState.load(state_path)
     if (
@@ -223,6 +224,8 @@ def finalize(
         adapter_sha256=_sha256(adapter_weights),
         autoscientist_run_id=state.autoscientist_run_id,
     )
+    if evidence_provenance:
+        comparison.value["evidence"].update(evidence_provenance)
     _write_json(base_report_path, base_report)
     _write_json(adapted_report_path, adapted_report)
     _write_json(comparison_json_path, comparison.value)
@@ -281,6 +284,7 @@ def main() -> None:
     args = parse_args()
     base_predictions = args.base_predictions
     adapted_predictions = args.adapted_predictions
+    evidence_provenance = None
     if args.staging_repo_id:
         if not args.evidence_revision or not args.checkpoint_revision:
             raise ValueError(
@@ -304,6 +308,11 @@ def main() -> None:
             dataset_manifest=args.dataset_manifest,
             checkpoint_revision=args.checkpoint_revision,
         )
+        evidence_provenance = {
+            "staging_repo_id": args.staging_repo_id,
+            "evidence_revision": args.evidence_revision,
+            "checkpoint_revision": args.checkpoint_revision,
+        }
     if base_predictions is None or adapted_predictions is None:
         raise ValueError(
             "provide both local prediction files or private staging arguments"
@@ -319,6 +328,7 @@ def main() -> None:
         comparison_json_path=args.output_dir / "comparison.json",
         comparison_markdown_path=args.output_dir / "comparison.md",
         submission_manifest_path=args.submission_manifest,
+        evidence_provenance=evidence_provenance,
     )
     print(json.dumps(value, indent=2, sort_keys=True))
 
