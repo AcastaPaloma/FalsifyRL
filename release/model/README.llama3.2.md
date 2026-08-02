@@ -47,9 +47,10 @@ confidence
 ## License and attribution
 
 This adapter is derived from Meta Llama 3.2 and is distributed subject to the Llama 3.2 Community
-License included in this repository. The repository and model name begin with “Llama” to preserve
-the required naming attribution. The FalsifyRL source code and generated dataset remain MIT
-licensed.
+License included in this repository and the
+[Llama 3.2 Acceptable Use Policy](https://www.llama.com/llama3_2/use-policy). The repository and
+model name begin with "Llama" to preserve the required naming attribution. The FalsifyRL source
+code and generated dataset remain MIT licensed.
 
 ## Safety and limitations
 

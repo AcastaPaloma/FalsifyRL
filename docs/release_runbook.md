@@ -157,13 +157,17 @@ After the adapted dataset and model exist on Kaggle, stage the notebook with bot
 declared as immutable inputs:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/prepare_kaggle_notebook.py `
+.\.venv\Scripts\python.exe scripts/continue_kaggle_notebook.py `
+  --owner kuanyiwang `
   --model-slug Llama-FalsifyRL-AutoScientist `
-  --model-version 1
-.\outputs\kaggle-cli-venv\Scripts\kaggle.exe kernels push `
-  -p artifacts/release/kaggle-notebook --accelerator NvidiaTeslaP100 --timeout 7200
+  --model-version 1 `
+  --submission-manifest outputs/submission/manifest.json `
+  --bundle-dir "artifacts/release/$run/kaggle-notebook" `
+  --output-dir "outputs/evaluation/$run/kaggle-notebook"
 ```
 
 If the model is not version 1, pass its actual public version. Do not remove `model_sources` or
 substitute the source dataset: the notebook must run against the exact `falsifyrl-adapted` release
-and exact selected `Llama-FalsifyRL-AutoScientist/pytorch/lora/<version>` adapter.
+and exact selected `Llama-FalsifyRL-AutoScientist/pytorch/lora/<version>` adapter. The continuation
+script waits for completion, downloads the output report, audits it, and records the public notebook
+URL in the private submission manifest.
