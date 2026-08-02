@@ -29,7 +29,9 @@ def prepare_kaggle_notebook(
         raise ValueError(f"output directory must be empty: {output_dir}")
 
     metadata = json.loads(metadata_template.read_text(encoding="utf-8"))
-    metadata["id"] = f"{owner}/falsifyrl-held-out-evaluation"
+    metadata["id"] = (
+        f"{owner}/falsifyrl-held-out-reward-hacking-evaluation"
+    )
     metadata["dataset_sources"] = [f"{owner}/falsifyrl-adapted"]
     metadata["model_sources"] = [
         f"{owner}/{model_slug}/pytorch/lora/{model_version}"

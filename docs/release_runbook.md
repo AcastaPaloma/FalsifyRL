@@ -106,7 +106,7 @@ For the selected Llama checkpoint, use the genuine Llama 3.2 Community License a
 license metadata unset rather than claiming Apache 2.0. The bundled license remains authoritative.
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/continue_model_release.py `
+.\.venv\Scripts\python.exe -m scripts.continue_model_release `
   --state "outputs/evaluation/$run/workflow.json" `
   --checkpoint outputs/autoscientist/best-checkpoint.tgz `
   --adapter-dir "outputs/evaluation/$run/release-adapter" `
@@ -154,15 +154,15 @@ For the selected run, after making **version 1 of the existing model** public in
 ```powershell
 $run = "255e1c38-a488-45ea-ac90-21e579d6c119"
 
-.\.venv\Scripts\python.exe scripts/resume_model_release.py `
+.\.venv\Scripts\python.exe -m scripts.resume_model_release `
   --state "outputs/evaluation/$run/workflow.json" `
   --checkpoint outputs/autoscientist/best-checkpoint.tgz `
-  --adapter-dir "outputs/evaluation/$run/release-adapter-resume-20260802" `
+  --adapter-dir "outputs/evaluation/$run/release-adapter-resume-20260802b" `
   --checkpoint-manifest "outputs/evaluation/$run/checkpoint-manifest.json" `
   --comparison "outputs/evaluation/$run/final/comparison.json" `
   --submission-manifest outputs/submission/manifest.json `
   --model-bundle "artifacts/release/$run/model-rerun-20260802" `
-  --space-bundle "artifacts/release/$run/space-rerun-20260802" `
+  --space-bundle "artifacts/release/$run/space-static-rerun-20260802" `
   --base-predictions "outputs/evaluation/$run/final/staged-evidence/falsifyrl-base-test-predictions.jsonl" `
   --model-predictions "outputs/evaluation/$run/final/staged-evidence/falsifyrl-adapted-test-predictions.jsonl" `
   --huggingface-owner KuanKuanKuan `
@@ -181,7 +181,7 @@ record and never calls either model uploader, so it cannot create Kaggle version
 Prepare the Space bundle from held-out examples:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/prepare_space.py `
+.\.venv\Scripts\python.exe -m scripts.prepare_space `
   --prediction-jsonl "outputs/evaluation/$run/final/staged-evidence/falsifyrl-adapted-test-predictions.jsonl"
 ```
 
@@ -189,15 +189,16 @@ The release command above prepares and publishes the cached-prediction Space onl
 repositories verify. Verify it separately:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/continue_space_verification.py `
+.\.venv\Scripts\python.exe -m scripts.continue_space_verification `
   --submission-manifest outputs/submission/manifest.json `
-  --examples "artifacts/release/$run/space/examples.json" `
+  --examples "artifacts/release/$run/space-static-rerun-20260802/examples.json" `
   --output "outputs/evaluation/$run/space-verification.json"
 ```
 
-The publisher uploads 16 examples representing eight reward-matched control/exploit pairs and sets
-the public Space variables needed for lazy model loading. Verify both a control and exploit
-prediction after the Space finishes building.
+The publisher uploads a free static evidence explorer with 16 examples representing eight
+reward-matched control/exploit pairs. It serves the strict cached outputs from the exact checkpoint
+and their source prediction-file hash; the verifier anonymously checks the page, bundle, and one
+control/exploit diagnosis after the Space finishes building.
 
 ## Publish the held-out Kaggle notebook
 
@@ -208,7 +209,7 @@ weights or a secret. A copied GPU notebook can optionally set `FALSIFYRL_LIVE_IN
 a private `HF_TOKEN` Kaggle secret to regenerate those predictions.
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/continue_kaggle_notebook.py `
+.\.venv\Scripts\python.exe -m scripts.continue_kaggle_notebook `
   --selected-release-record "outputs/evaluation/$run/selected-release.json" `
   --owner kuanyiwang `
   --model-slug Llama-FalsifyRL-AutoScientist `

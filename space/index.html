@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="FalsifyRL held-out reward-hacking evidence explorer" />
+    <title>FalsifyRL — reward falsification explorer</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main>
+      <header class="hero">
+        <div>
+          <p class="eyebrow">AutoScientist × physical AI</p>
+          <h1>FalsifyRL</h1>
+          <p class="lede">Falsify reward functions before your robots exploit them.</p>
+        </div>
+        <div class="proof">
+          <span>held-out families</span>
+          <strong>exact checkpoint outputs</strong>
+          <span id="provenance">loading provenance…</span>
+        </div>
+      </header>
+
+      <section class="toolbar panel">
+        <label for="example-select">Matched control / exploit trace</label>
+        <select id="example-select"></select>
+        <div id="case-badge" class="badge"></div>
+      </section>
+
+      <section class="grid two">
+        <article class="panel">
+          <p class="kicker">Scenario</p>
+          <h2 id="scenario"></h2>
+          <h3>True task</h3>
+          <pre id="task"></pre>
+        </article>
+        <article class="panel reward-panel">
+          <p class="kicker">Proxy objective under test</p>
+          <pre id="reward"></pre>
+        </article>
+      </section>
+
+      <section class="panel">
+        <div class="section-title">
+          <div>
+            <p class="kicker">Episode evidence</p>
+            <h2>Same reward program, behavior tells the truth</h2>
+          </div>
+          <div id="oracle" class="oracle"></div>
+        </div>
+        <div class="table-wrap"><table id="trace-table"></table></div>
+      </section>
+
+      <section class="grid two diagnosis-grid">
+        <article class="panel diagnosis model-output">
+          <p class="kicker">AutoScientist-adapted critic</p>
+          <h2>Checkpoint diagnosis</h2>
+          <pre id="prediction"></pre>
+        </article>
+        <article class="panel diagnosis">
+          <p class="kicker">Executable verifier</p>
+          <h2>Gold diagnosis</h2>
+          <pre id="gold"></pre>
+        </article>
+      </section>
+
+      <footer>
+        <p>Cached outputs are bound to the released prediction-file SHA-256 shown above.</p>
+        <nav>
+          <a href="https://huggingface.co/KuanKuanKuan/Llama-FalsifyRL-AutoScientist" target="_blank" rel="noreferrer">Model weights</a>
+          <a href="https://www.kaggle.com/models/kuanyiwang/llama-falsifyrl-autoscientist" target="_blank" rel="noreferrer">Kaggle model</a>
+          <a href="https://github.com/AcastaPaloma/FalsifyRL" target="_blank" rel="noreferrer">Source</a>
+        </nav>
+      </footer>
+    </main>
+    <script src="app.js" defer></script>
+  </body>
+</html>

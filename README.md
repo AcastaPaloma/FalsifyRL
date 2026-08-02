@@ -72,11 +72,28 @@ in the release evidence.
 - [Verified source dataset on Kaggle](https://www.kaggle.com/datasets/kuanyiwang/falsifyrl-source)
 - [Audited Adaptive Data export on Hugging Face](https://huggingface.co/datasets/KuanKuanKuan/falsifyrl-adapted)
 - [Audited Adaptive Data export on Kaggle](https://www.kaggle.com/datasets/kuanyiwang/falsifyrl-adapted)
+- [AutoScientist-trained Llama 3.2 LoRA on Hugging Face](https://huggingface.co/KuanKuanKuan/Llama-FalsifyRL-AutoScientist)
+- [The same verified model version on Kaggle](https://www.kaggle.com/models/kuanyiwang/llama-falsifyrl-autoscientist/pytorch/lora)
+- [Interactive held-out evidence Space](https://huggingface.co/spaces/KuanKuanKuan/falsifyrl-llama)
+- [Reproducible public Kaggle evaluation](https://www.kaggle.com/code/kuanyiwang/falsifyrl-held-out-reward-hacking-evaluation)
 
 Both adapted-dataset releases expose the exact 2,408-row training export with SHA-256
-`1a68d746184ae85272c8cc513e805cf6bcf1bee6b1f3b4e16a1d4f3c12dbe099`. The AutoScientist
-checkpoint, interactive Space, and reproducible Kaggle evaluation links will be added only after
-their fail-closed audits pass.
+`1a68d746184ae85272c8cc513e805cf6bcf1bee6b1f3b4e16a1d4f3c12dbe099`. The released adapter is
+byte-identical on Hugging Face and Kaggle: SHA-256
+`212707afbc286ff51e7c811c66ac6d3cf1286a5328dac895aa67433377479ed3`.
+
+## Audited result
+
+AutoScientist selected a checkpoint with best research-loop win rate **0.9643**. On the untouched
+640-example `crossing_navigation` family, the exact released checkpoint scores **0.9022 composite**
+versus **0.0000** for the base Llama 3.2 3B Instruct model. It reaches 98.28% strict JSON validity,
+96.88% verdict accuracy, 97.69% verdict macro-F1, 93.44% evidence F1, and 90.63% executable-patch
+accuracy.
+
+The public Kaggle notebook independently replays the release-bound evidence on all 640 examples and
+reports 98.59% adapted verdict macro-F1 versus 0.00% for base, with 100% JSON validity. The static
+Space exposes 16 matched control/exploit cases and exact checkpoint outputs bound to prediction-file
+SHA-256 `dc91432d88ab097cc77aa9e034603f98bec6f0b623932cfa9e74c677a09b577c`.
 
 See [docs/hackathon_plan.md](docs/hackathon_plan.md) for the submission contract and
 [docs/autoscientist_runbook.md](docs/autoscientist_runbook.md) for the credential-safe platform

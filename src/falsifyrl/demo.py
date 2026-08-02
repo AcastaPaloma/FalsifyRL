@@ -104,19 +104,25 @@ def prepare_space_bundle(
     template = Path(template_dir)
     destination = Path(bundle_dir)
     destination.mkdir(parents=True, exist_ok=True)
-    expected_files = {
+    static_template_files = {
         "README.md",
-        "app.py",
-        "requirements.txt",
-        "examples.json",
-        "predictions.json",
+        "index.html",
+        "app.js",
+        "style.css",
     }
+    gradio_template_files = {"README.md", "app.py", "requirements.txt"}
+    template_files = (
+        static_template_files
+        if all((template / filename).is_file() for filename in static_template_files)
+        else gradio_template_files
+    )
+    expected_files = template_files | {"examples.json", "predictions.json"}
     unexpected = sorted(
         child.name for child in destination.iterdir() if child.name not in expected_files
     )
     if unexpected:
         raise ValueError(f"Space bundle destination contains stale files: {unexpected}")
-    for filename in ("README.md", "app.py", "requirements.txt"):
+    for filename in sorted(template_files):
         source = template / filename
         if not source.is_file():
             raise FileNotFoundError(source)

@@ -218,13 +218,13 @@ def test_kaggle_run_waits_for_the_selected_hash_verified_model_release(
     )
     update_private_manifest(
         manifest_path,
-        "https://www.kaggle.com/code/owner/falsifyrl-held-out-evaluation",
+        "https://www.kaggle.com/code/owner/falsifyrl-held-out-reward-hacking-evaluation",
     )
     updated = json.loads(manifest_path.read_text(encoding="utf-8"))
 
     assert manifest["attestations"]["weights_public_on_both_platforms"] is True
     assert updated["links"]["kaggle_notebook"].endswith(
-        "falsifyrl-held-out-evaluation"
+        "falsifyrl-held-out-reward-hacking-evaluation"
     )
 
 
@@ -296,5 +296,11 @@ def test_kaggle_kernel_status_is_polled_until_complete(
     )
 
     assert parse_kernel_status(completed.stdout) == "complete"
+    assert (
+        parse_kernel_status(
+            'owner/kernel has status "KernelWorkerStatus.COMPLETE"'
+        )
+        == "complete"
+    )
     assert parse_kernel_status("Kernel status: failed") == "failed"
     assert parse_kernel_status("unexpected output") == "unknown"

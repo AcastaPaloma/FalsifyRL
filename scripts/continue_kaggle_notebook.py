@@ -134,12 +134,18 @@ def await_verified_model_release(
 
 def _run(command: list[str], *, cwd: Path) -> subprocess.CompletedProcess[str]:
     print(json.dumps({"command": command}), flush=True)
+    environment = os.environ.copy()
+    environment["PYTHONUTF8"] = "1"
+    environment["PYTHONIOENCODING"] = "utf-8"
     completed = subprocess.run(
         command,
         cwd=cwd,
+        env=environment,
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if completed.stdout:
         print(completed.stdout, flush=True)
@@ -183,6 +189,13 @@ def verify_kaggle_evaluation_report(report: dict, selected_release: dict) -> Non
 
 def parse_kernel_status(output: str) -> str:
     normalized = output.lower()
+    enum_match = re.search(
+        r"kernelworkerstatus[.]"
+        r"(complete|running|queued|pending|error|failed|cancelled|canceled)",
+        normalized,
+    )
+    if enum_match:
+        return enum_match.group(1)
     match = re.search(
         r"\b(?:kernel\s+)?status\s*[:=]?\s*[\"']?"
         r"(complete|running|queued|pending|error|failed|cancelled|canceled)",
@@ -286,6 +299,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--owner")
     parser.add_argument("--model-slug")
     parser.add_argument("--model-version", type=int)
+    parser.add_argument(
+        "--kernel-slug",
+        default="falsifyrl-held-out-reward-hacking-evaluation",
+    )
+    parser.add_argument(
+        "--skip-push",
+        action="store_true",
+        help="resume polling an already-pushed notebook without creating a new version",
+    )
     parser.add_argument("--poll-seconds", type=float, default=30.0)
     parser.add_argument("--timeout-seconds", type=float, default=259_200.0)
     return parser.parse_args()
@@ -310,38 +332,39 @@ def main() -> None:
         timeout_seconds=args.timeout_seconds,
     )
     repository = Path(__file__).resolve().parents[1]
-    _run(
-        [
-            sys.executable,
-            "scripts/prepare_kaggle_notebook.py",
-            "--owner",
-            owner,
-            "--model-version",
-            str(model_version),
-            "--model-slug",
-            model_slug,
-            "--notebook",
-            str(args.notebook.resolve()),
-            "--metadata-template",
-            str(args.metadata_template.resolve()),
-            "--output-dir",
-            str(args.bundle_dir.resolve()),
-        ],
-        cwd=repository,
-    )
-    kernel_handle = f"{owner}/falsifyrl-held-out-evaluation"
-    _run(
-        [
-            str(args.kaggle_cli.resolve()),
-            "kernels",
-            "push",
-            "-p",
-            str(args.bundle_dir.resolve()),
-            "--timeout",
-            "7200",
-        ],
-        cwd=repository,
-    )
+    kernel_handle = f"{owner}/{args.kernel_slug}"
+    if not args.skip_push:
+        _run(
+            [
+                sys.executable,
+                "scripts/prepare_kaggle_notebook.py",
+                "--owner",
+                owner,
+                "--model-version",
+                str(model_version),
+                "--model-slug",
+                model_slug,
+                "--notebook",
+                str(args.notebook.resolve()),
+                "--metadata-template",
+                str(args.metadata_template.resolve()),
+                "--output-dir",
+                str(args.bundle_dir.resolve()),
+            ],
+            cwd=repository,
+        )
+        _run(
+            [
+                str(args.kaggle_cli.resolve()),
+                "kernels",
+                "push",
+                "-p",
+                str(args.bundle_dir.resolve()),
+                "--timeout",
+                "7200",
+            ],
+            cwd=repository,
+        )
     await_kernel_completion(
         kaggle_cli=args.kaggle_cli,
         kernel_handle=kernel_handle,

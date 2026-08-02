@@ -524,13 +524,14 @@ def publish_huggingface_space(
             "Install release dependencies with `pip install -e .[release]`."
         ) from error
     bundle = Path(bundle_dir)
-    required = {
-        "README.md",
-        "app.py",
-        "requirements.txt",
-        "examples.json",
-        "predictions.json",
-    }
+    readme_path = bundle / "README.md"
+    readme = readme_path.read_text(encoding="utf-8") if readme_path.is_file() else ""
+    is_static = "sdk: static" in readme
+    required = (
+        {"README.md", "index.html", "app.js", "style.css"}
+        if is_static
+        else {"README.md", "app.py", "requirements.txt"}
+    ) | {"examples.json", "predictions.json"}
     missing = sorted(filename for filename in required if not (bundle / filename).is_file())
     if missing:
         raise ValueError(f"Space bundle is missing required files: {missing}")
@@ -565,7 +566,7 @@ def publish_huggingface_space(
     api.create_repo(
         repo_id=repo_id,
         repo_type="space",
-        space_sdk="gradio",
+        space_sdk="static" if is_static else "gradio",
         private=private,
         exist_ok=True,
     )
@@ -576,8 +577,9 @@ def publish_huggingface_space(
         repo_type="space",
         commit_message="Publish FalsifyRL interactive critic demo",
     )
-    api.add_space_variable(repo_id, "BASE_MODEL_ID", base_model_id)
-    api.add_space_variable(repo_id, "MODEL_REPO_ID", model_repo_id)
+    if not is_static:
+        api.add_space_variable(repo_id, "BASE_MODEL_ID", base_model_id)
+        api.add_space_variable(repo_id, "MODEL_REPO_ID", model_repo_id)
     return f"https://huggingface.co/spaces/{repo_id}"
 
 

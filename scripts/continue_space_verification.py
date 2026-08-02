@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+import requests
 from dotenv import load_dotenv
 
 from falsifyrl.schema import Diagnosis
@@ -87,7 +88,6 @@ def main() -> None:
         raise ValueError(f"invalid Hugging Face Space URL: {space_url}")
     repo_id = "/".join(parts[-2:])
 
-    from gradio_client import Client
     from huggingface_hub import HfApi
 
     api = HfApi()
@@ -111,26 +111,80 @@ def main() -> None:
         selected[role] = next(
             example for example in examples if example["case_role"] == role
         )
-    client = Client(space_url, verbose=False)
     results = {}
-    for role, example in selected.items():
-        job = client.submit(
-            example["example_id"],
-            api_name="/run_critic",
+    info = api.space_info(repo_id, token=False)
+    filenames = {sibling.rfilename for sibling in info.siblings or []}
+    if "index.html" in filenames:
+        owner, slug = repo_id.split("/", maxsplit=1)
+        app_url = f"https://{owner.lower()}-{slug.lower()}.static.hf.space"
+        page = requests.get(f"{app_url}/", timeout=args.prediction_timeout_seconds)
+        page.raise_for_status()
+        if "FalsifyRL" not in page.text:
+            raise RuntimeError("static Space page is missing the FalsifyRL marker")
+        remote_examples_response = requests.get(
+            f"{app_url}/examples.json",
+            timeout=args.prediction_timeout_seconds,
         )
-        prediction = job.result(timeout=args.prediction_timeout_seconds)
-        results[role] = {
-            "example_id": example["example_id"],
-            "prediction": require_strict_prediction(prediction),
+        remote_examples_response.raise_for_status()
+        remote_examples = remote_examples_response.json()
+        if {
+            str(example["example_id"]) for example in remote_examples
+        } != {str(example["example_id"]) for example in examples}:
+            raise RuntimeError("static Space examples differ from the release bundle")
+        predictions_response = requests.get(
+            f"{app_url}/predictions.json",
+            timeout=args.prediction_timeout_seconds,
+        )
+        predictions_response.raise_for_status()
+        prediction_bundle = predictions_response.json()
+        if (
+            prediction_bundle.get("schema_version") != 1
+            or prediction_bundle.get("mode")
+            != "cached_exact_checkpoint_predictions"
+            or len(str(prediction_bundle.get("source_predictions_sha256", "")))
+            != 64
+        ):
+            raise RuntimeError("static Space prediction provenance is invalid")
+        remote_predictions = prediction_bundle.get("predictions", {})
+        for role, example in selected.items():
+            results[role] = {
+                "example_id": example["example_id"],
+                "prediction": require_strict_prediction(
+                    remote_predictions.get(example["example_id"])
+                ),
+            }
+        value = {
+            "space_url": space_url,
+            "public_app_url": app_url,
+            "space_stage": "RUNNING",
+            "anonymous_interface": "static cached evidence explorer",
+            "source_predictions_sha256": prediction_bundle[
+                "source_predictions_sha256"
+            ],
+            "roles_verified": sorted(results),
+            "results": results,
         }
+    else:
+        from gradio_client import Client
 
-    value = {
-        "space_url": space_url,
-        "space_stage": "RUNNING",
-        "anonymous_api": "/run_critic",
-        "roles_verified": sorted(results),
-        "results": results,
-    }
+        client = Client(space_url, verbose=False)
+        for role, example in selected.items():
+            job = client.submit(
+                example["example_id"],
+                api_name="/run_critic",
+            )
+            prediction = job.result(timeout=args.prediction_timeout_seconds)
+            results[role] = {
+                "example_id": example["example_id"],
+                "prediction": require_strict_prediction(prediction),
+            }
+        value = {
+            "space_url": space_url,
+            "space_stage": "RUNNING",
+            "anonymous_api": "/run_critic",
+            "roles_verified": sorted(results),
+            "results": results,
+        }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(value, indent=2, sort_keys=True) + "\n",
